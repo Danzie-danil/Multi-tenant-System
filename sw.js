@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-bms-v10';
+const CACHE_NAME = 'nexus-bms-v11';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -10,14 +10,14 @@ const ASSETS_TO_CACHE = [
     './js/auth.js',
     './js/dashboard.js',
     './js/supabase.js',
-    './icons/icon-72.png',
-    './icons/icon-96.png',
-    './icons/icon-128.png',
-    './icons/icon-144.png',
-    './icons/icon-152.png',
-    './icons/icon-192.png',
-    './icons/icon-384.png',
-    './icons/icon-512.png'
+    './icons/icon-circle-72.png',
+    './icons/icon-circle-96.png',
+    './icons/icon-circle-128.png',
+    './icons/icon-circle-144.png',
+    './icons/icon-circle-152.png',
+    './icons/icon-circle-192.png',
+    './icons/icon-circle-384.png',
+    './icons/icon-circle-512.png'
 ];
 
 // Install Event - Cache Assets
