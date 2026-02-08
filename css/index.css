@@ -610,22 +610,32 @@ select.input-field option {
     box-shadow: var(--shadow-sm);
 }
 
-.auth-tabs button:not(.active):hover {
-    color: var(--text-main);
-    background: rgba(255, 255, 255, 0.05);
+@media (hover: hover) {
+    .auth-tabs button:not(.active):hover {
+        color: var(--text-main);
+        background: rgba(255, 255, 255, 0.05);
+    }
 }
 
-.auth-tabs button:hover::before,
 .auth-tabs button.active::before {
     width: 30%;
     opacity: 1;
 }
 
+@media (hover: hover) {
+    .auth-tabs button:hover::before {
+        width: 30%;
+        opacity: 1;
+    }
+}
+
 /* Premium Blur Siblings Effect */
-.auth-tabs:hover>button:not(:hover) {
-    filter: blur(1.5px);
-    transform: scale(0.96);
-    opacity: 0.6;
+@media (hover: hover) {
+    .auth-tabs:hover>button:not(:hover) {
+        filter: blur(1.5px);
+        transform: scale(0.96);
+        opacity: 0.6;
+    }
 }
 
 .auth-form {
