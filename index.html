@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BMS - Business Management System</title>
+
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0d503c">
+    <link rel="icon" type="image/png" href="icons/icon-96.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BMS">
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+
+    <!-- Prevent Flash of Unstyled Theme -->
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem('bms-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+</head>
+
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="lds-hourglass"></div>
+            <p class="loading-text">Just a Moment....!</p>
+        </div>
+    </div>
+
+    <!-- Animated Geometric Background -->
+    <!-- Animated Geometric Background -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <div id="app" class="app-container">
+        <!-- Auth Container (default view) -->
+        <main id="auth-view" class="auth-wrapper hidden">
+            <div class="auth-card">
+                <h1 class="brand-logo">⚡ BMS</h1>
+                <p style="text-align: center; color: var(--text-muted); margin-bottom: 2rem;">
+                    Business Management System
+                </p>
+
+                <div class="auth-tabs">
+                    <button class="active" data-mode="login">Enterprise Login</button>
+                    <button data-mode="branch-login">Branch Login</button>
+                    <button data-mode="register">Register</button>
+                </div>
+
+                <!-- Inline Message Box for Auth -->
+                <div id="auth-message" class="message-box hidden"></div>
+
+                <!-- Enterprise Login Form -->
+                <form id="login-form" class="auth-form">
+                    <div class="input-group">
+                        <label for="login-id">Admin Email</label>
+                        <input type="email" id="login-id" placeholder="admin@company.com" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="login-password">Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="login-password" placeholder="Enter your password" required>
+                            <button type="button" class="password-toggle" data-target="login-password" tabindex="-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Sign In →</button>
+                    <div style="text-align: center; margin-top: 0.5rem;">
+                        <a href="#" id="forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
+                    </div>
+                </form>
+
+                <!-- Branch Login Form -->
+                <form id="branch-login-form" class="auth-form hidden">
+                    <div class="input-group">
+                        <label for="branch-login-id">Branch ID</label>
+                        <input type="text" id="branch-login-id" placeholder="e.g. branch-001-Code" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="branch-login-password">Branch Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="branch-login-password" placeholder="Enter branch password"
+                                required>
+                            <button type="button" class="password-toggle" data-target="branch-login-password"
+                                tabindex="-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Branch Login →</button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="register-form" class="auth-form hidden">
+                    <div class="input-group">
+                        <label for="reg-name">Enterprise Name</label>
+                        <input type="text" id="reg-name" placeholder="Acme Corporation" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-email">Admin Email</label>
+                        <input type="email" id="reg-email" placeholder="admin@acme.com" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-password">Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="reg-password" placeholder="Create a strong password" required
+                                minlength="6">
+                            <button type="button" class="password-toggle" data-target="reg-password" tabindex="-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Create Enterprise →</button>
+                </form>
+
+                <!-- Password Reset Form -->
+                <form id="reset-form" class="auth-form hidden">
+                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                        Enter your email to receive a password reset link.
+                    </p>
+                    <div class="input-group">
+                        <label for="reset-email">Email Address</label>
+                        <input type="email" id="reset-email" placeholder="your@email.com" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Send Reset Link →</button>
+                    <div style="text-align: center; margin-top: 0.5rem;">
+                        <a href="#" id="back-to-login-link" style="font-size: 0.875rem; color: var(--text-muted);">←
+                            Back to Login</a>
+                    </div>
+                </form>
+            </div>
+        </main>
+
+        <!-- Dashboard Shell (Hidden by default) -->
+        <div id="dashboard-shell" class="dashboard-layout hidden">
+            <!-- Sidebar Overlay for Mobile -->
+            <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+            <aside class="sidebar" id="main-sidebar">
+                <div class="sidebar-header">
+                    <h2>⚡ BMS</h2>
+                    <p id="ent-name-display" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem;">
+                    </p>
+                </div>
+                <nav class="sidebar-nav" id="sidebar-nav">
+                    <!-- Dynamic Navigation Items Injected Here -->
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="user-profile">
+                        <div class="avatar" id="user-avatar">U</div>
+                        <div style="flex: 1;">
+                            <div id="user-name" style="font-weight: 600;">User</div>
+                            <span id="user-role" class="badge">Role</span>
+                        </div>
+                    </div>
+                    <button id="logout-btn" class="btn-ghost" style="width: 100%; margin-top: 1rem;">
+                        ← Logout
+                    </button>
+                </div>
+            </aside>
+            <div class="main-content">
+                <header class="top-bar">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <button id="mobile-menu-btn" class="btn-icon mobile-menu-btn" title="Toggle Menu">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="3" y1="12" x2="21" y2="12"></line>
+                                <line x1="3" y1="6" x2="21" y2="6"></line>
+                                <line x1="3" y1="18" x2="21" y2="18"></line>
+                            </svg>
+                        </button>
+                        <h2 id="page-title">Operations</h2>
+                    </div>
+
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <!-- In-App Navigation Controls (Back/Forward) -->
+                        <div id="nav-controls" class="nav-controls hidden">
+                            <button id="nav-back" class="nav-ctrl-btn" data-action="back" disabled>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <polyline points="15 18 9 12 15 6"></polyline>
+                                </svg>
+                            </button>
+                            <div class="nav-separator"></div>
+                            <button id="nav-forward" class="nav-ctrl-btn" data-action="forward" disabled>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <button id="theme-toggle-btn" class="btn-icon" title="Toggle theme">🌙</button>
+                        <button id="quick-logout-btn" class="btn-icon" title="Logout"
+                            style="color: var(--danger); border-color: rgba(239,68,68,0.3);">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                <polyline points="16 17 21 12 16 7"></polyline>
+                                <line x1="21" y1="12" x2="9" y2="12"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </header>
+
+                <div id="content-area" class="page-container">
+                    <!-- Dynamic Content -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Branch Modal -->
+    <div id="branch-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button class="close-btn" data-close-modal="branch-modal">&times;</button>
+            <div class="card-header" style="border-bottom: none; padding-bottom: 0;">
+                <h3 class="card-title">Create New Branch</h3>
+            </div>
+            <div id="branch-modal-message" class="message-box hidden"></div>
+            <form id="create-branch-form" class="auth-form">
+                <div class="input-group">
+                    <label>Branch Name</label>
+                    <input type="text" id="branch-name" required placeholder="e.g. Downtown Store">
+                </div>
+                <div class="input-group">
+                    <label>Location</label>
+                    <input type="text" id="branch-location" required placeholder="City or Address">
+                </div>
+
+                <hr>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                    Branch Manager Credentials
+                </p>
+
+                <div class="input-group">
+                    <label>Branch Login ID</label>
+                    <input type="text" id="branch-login-id" readonly
+                        style="background: var(--bg-glass); cursor: not-allowed; color: var(--text-dim);">
+                </div>
+                <div class="input-group">
+                    <label>Manager Password (Auto-generated)</label>
+                    <input type="text" id="branch-password" readonly
+                        style="background: var(--bg-glass); cursor: not-allowed; color: var(--text-dim);">
+                </div>
+
+                <div class="flex gap-2" style="margin-top: 0.5rem;">
+                    <button type="button" class="btn-ghost" style="flex:1"
+                        data-close-modal="branch-modal">Cancel</button>
+                    <button type="submit" class="btn-primary" style="flex:1">Create Branch →</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Branch Created Success Modal -->
+    <div id="branch-success-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="text-align: center; max-width: 450px;">
+            <div style="font-size: 4rem; margin-bottom: 1rem;">🎉</div>
+            <h3 class="card-title" style="margin-bottom: 1rem;">Branch Created!</h3>
+            <div
+                style="background: var(--bg-glass); padding: 1.25rem; border-radius: var(--radius-lg); margin-bottom: 1.5rem; text-align: left; border: 1px solid var(--border);">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">Branch Login Credentials:
+                </p>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <div style="flex: 1;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">Login ID:</span><br>
+                        <code id="success-login-id" style="font-size: 1rem;">-</code>
+                    </div>
+                    <button class="btn-icon copy-btn" data-copy="success-login-id" title="Copy Login ID">📋</button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="flex: 1;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">Password:</span><br>
+                        <code id="success-password" style="font-size: 1rem;">-</code>
+                    </div>
+                    <button class="btn-icon copy-btn" data-copy="success-password" title="Copy Password">📋</button>
+                </div>
+            </div>
+
+            <button class="btn-ghost copy-all-btn" style="width: 100%; margin-bottom: 0.75rem;" onclick="
+                const id = document.getElementById('success-login-id').textContent;
+                const pw = document.getElementById('success-password').textContent;
+                navigator.clipboard.writeText('Login ID: ' + id + '\\nPassword: ' + pw);
+                this.textContent = '✓ Copied!';
+                setTimeout(() => this.textContent = '📋 Copy All Credentials', 2000);
+            ">📋 Copy All Credentials</button>
+
+            <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+                Share these credentials with your Branch Manager.
+            </p>
+            <button class="btn-primary" style="width: 100%;" data-close-modal="branch-success-modal">Done</button>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <h3 id="confirm-title" class="card-title" style="margin-bottom: 0.5rem;">Confirm Action</h3>
+            <p id="confirm-message" style="color: var(--text-muted); margin-bottom: 1.5rem;">Are you sure?</p>
+            <div class="flex gap-2">
+                <button class="btn-ghost" style="flex:1" data-close-modal="confirm-modal">Cancel</button>
+                <button id="confirm-action-btn" class="btn-primary" style="flex:1">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script type="module" src="js/particles.js"></script>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/dashboard.js"></script>
+
+
+    <!-- PWA Service Worker Registration -->
+    <!-- PWA Service Worker (DISABLED FOR DEVELOPMENT) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            // Unregister any existing service workers to ensure live updates
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    registration.unregister();
+                    console.log('ServiceWorker Unregistered for Development');
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
