@@ -13,7 +13,9 @@ const app = {
         currentView: 'auth', // 'auth' | 'dashboard'
         authMode: 'login',   // 'login' | 'register' | 'reset'
         theme: 'light',      // 'dark' | 'light'
-        currentCurrency: 'TZS'
+        theme: 'light',      // 'dark' | 'light'
+        currentCurrency: 'TZS',
+        activeModal: null
     },
 
     // Theme Management
@@ -26,11 +28,13 @@ const app = {
         localStorage.setItem('bms-theme', theme);
         document.documentElement.setAttribute('data-theme', theme);
 
-        // Update top bar toggle icon if exists
-        const themeToggleBtn = document.getElementById('theme-toggle-btn');
-        if (themeToggleBtn) {
-            themeToggleBtn.textContent = theme === 'dark' ? '🌙' : '☀️';
-        }
+        // Update all theme switches in the DOM
+        const themeToggles = document.querySelectorAll('#theme-toggle-btn, .theme-switch-input');
+        themeToggles.forEach(toggle => {
+            if (toggle.type === 'checkbox') {
+                toggle.checked = (theme === 'light');
+            }
+        });
 
         // Save to cloud if user is logged in
         if (saveToCloud && this.state.currentUser) {
@@ -92,6 +96,16 @@ const app = {
             }
         } catch (e) {
             console.error("Error loading enterprise settings:", e);
+        }
+
+        // Check Security PIN Status (Admin only)
+        if (profile.role === 'enterprise_admin') {
+            try {
+                this.state.hasSecurityPin = await Auth.hasSecurityPin();
+            } catch (e) {
+                console.error("Error checking PIN status:", e);
+                this.state.hasSecurityPin = false;
+            }
         }
     },
 
@@ -171,12 +185,29 @@ const app = {
     },
 
     // Modal Helpers
+    // Modal Helpers - with History support for back button
     openModal(modalId) {
-        document.getElementById(modalId)?.classList.remove('hidden');
+        const el = document.getElementById(modalId);
+        if (el && this.state.activeModal !== modalId) {
+            el.classList.remove('hidden');
+            this.state.activeModal = modalId;
+
+            // Push state so back button closes modal
+            const currentState = window.history.state || {};
+            const newState = { ...currentState, modal: modalId };
+            window.history.pushState(newState, '', '');
+        }
     },
 
     closeModal(modalId) {
-        document.getElementById(modalId)?.classList.add('hidden');
+        // If this modal is the current history state, go back
+        if (window.history.state && window.history.state.modal === modalId) {
+            window.history.back();
+        } else {
+            // Fallback for programmatically closed modals not in history
+            document.getElementById(modalId)?.classList.add('hidden');
+            this.state.activeModal = null;
+        }
     },
 
     // Password Update Form (after clicking reset link)
@@ -305,7 +336,7 @@ const app = {
             loadingScreen.classList.add('hidden');
         }
 
-        // Global click listener for closing interactive cards
+        // Global click listener for closing interactive cards & handling external links
         document.addEventListener('click', (e) => {
             const welcomeCard = document.querySelector('.welcome-card');
             if (welcomeCard && welcomeCard.classList.contains('expanded')) {
@@ -313,6 +344,13 @@ const app = {
                 if (!welcomeCard.contains(e.target)) {
                     welcomeCard.classList.remove('expanded');
                 }
+            }
+
+            // External Key Handler (WebView Optimization)
+            const link = e.target.closest('a');
+            if (link && !link.getAttribute('target') && link.hostname !== window.location.hostname && link.hostname.length > 0) {
+                e.preventDefault();
+                window.open(link.href, '_blank', 'noopener,noreferrer');
             }
         });
     },
@@ -333,7 +371,10 @@ const app = {
             userRole: document.getElementById('user-role'),
             logoutBtn: document.getElementById('logout-btn'),
             forgotPasswordLink: document.getElementById('forgot-password-link'),
+            branchForgotPasswordLink: document.getElementById('branch-forgot-password-link'),
+            branchResetInfo: document.getElementById('branch-reset-info'),
             backToLoginLink: document.getElementById('back-to-login-link'),
+            branchBackToLoginBtn: document.getElementById('branch-back-to-login'),
             sidebar: document.getElementById('main-sidebar'),
             sidebarNav: document.getElementById('sidebar-nav'),
             sidebarOverlay: document.getElementById('sidebar-overlay'),
@@ -360,11 +401,28 @@ const app = {
             });
         }
 
+        // Branch Forgot Password Link
+        if (this.dom.branchForgotPasswordLink) {
+            this.dom.branchForgotPasswordLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.switchAuthMode('branch-reset-info');
+            });
+        }
+
         // Back to Login Link
         if (this.dom.backToLoginLink) {
             this.dom.backToLoginLink.addEventListener('click', (e) => {
                 e.preventDefault();
+                // If we were on branch-reset-info, go to branch-login
+                // Actually, back-to-login-link is only in the admin reset form.
                 this.switchAuthMode('login');
+            });
+        }
+
+        // Branch Back to Login Button
+        if (this.dom.branchBackToLoginBtn) {
+            this.dom.branchBackToLoginBtn.addEventListener('click', () => {
+                this.switchAuthMode('branch-login');
             });
         }
 
@@ -590,12 +648,12 @@ const app = {
         // Quick Theme Toggle in Top Bar
         const themeToggleBtn = document.getElementById('theme-toggle-btn');
         if (themeToggleBtn) {
-            // Set initial icon
-            themeToggleBtn.textContent = this.state.theme === 'dark' ? '🌙' : '☀️';
+            // Checkbox logic: checked = light mode
+            themeToggleBtn.checked = (this.state.theme === 'light');
 
-            themeToggleBtn.addEventListener('click', () => {
-                const newTheme = this.toggleTheme();
-                themeToggleBtn.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+            themeToggleBtn.addEventListener('change', () => {
+                const newTheme = themeToggleBtn.checked ? 'light' : 'dark';
+                this.setTheme(newTheme, true);
                 this.showToast(`Switched to ${newTheme} mode`, 'success', 2000);
             });
         }
@@ -639,9 +697,32 @@ const app = {
 
         // Bind Nav Controls
         // Browser Back/Forward Handling
+        // Browser Back/Forward Handling
         window.addEventListener('popstate', (event) => {
+            // 1. Modal Handling
+            const closingModal = this.state.activeModal && (!event.state || event.state.modal !== this.state.activeModal);
+
+            if (closingModal) {
+                document.getElementById(this.state.activeModal)?.classList.add('hidden');
+                this.state.activeModal = null;
+            }
+
+            if (event.state && event.state.modal && event.state.modal !== this.state.activeModal) {
+                const el = document.getElementById(event.state.modal);
+                if (el) {
+                    el.classList.remove('hidden');
+                    this.state.activeModal = event.state.modal;
+                }
+            }
+
             if (event.state && event.state.page) {
                 const newPage = event.state.page;
+
+                // Optimization: If page is same, don't reload (just modal change)
+                const currentPage = this.state.history[this.state.historyIndex];
+                if (newPage === currentPage && (closingModal || (event.state && event.state.modal))) {
+                    return;
+                }
 
                 // Sync Internal History Index
                 // Check if we went back
@@ -669,15 +750,18 @@ const app = {
     switchAuthMode(mode) {
         this.state.authMode = mode;
         const tabs = this.dom.authTabs;
+        const tabContainer = document.querySelector('.auth-tabs');
 
-        // Hide all forms
+        // Hide all forms and info cards
         this.dom.loginForm.classList.add('hidden');
         this.dom.branchLoginForm.classList.add('hidden');
         this.dom.registerForm.classList.add('hidden');
         this.dom.resetForm.classList.add('hidden');
+        if (this.dom.branchResetInfo) this.dom.branchResetInfo.classList.add('hidden');
         this.hideMessage('auth-message');
 
-        // Reset tab states
+        // Reset tab states & visibility
+        tabContainer?.classList.remove('hidden');
         tabs.forEach(t => t.classList.remove('active'));
 
         if (mode === 'login') {
@@ -691,6 +775,10 @@ const app = {
             if (tabs[2]) tabs[2].classList.add('active');
         } else if (mode === 'reset') {
             this.dom.resetForm.classList.remove('hidden');
+        } else if (mode === 'branch-reset-info') {
+            // Hide the tabs to prevent jumping during info view
+            tabContainer?.classList.add('hidden');
+            this.dom.branchResetInfo.classList.remove('hidden');
         }
     },
 
@@ -699,7 +787,7 @@ const app = {
         admin: [
             { id: 'home', icon: '◈', label: 'Home' },
             { id: 'branches', icon: '◉', label: 'Branches' },
-            { id: 'products', icon: '📦', label: 'Products' },
+            { id: 'workspace', icon: '⚡', label: 'Workspace' },
             { id: 'analytics', icon: '◆', label: 'Analytics' },
             { id: 'profile', icon: '👤', label: 'Profile' }
         ],
@@ -764,7 +852,8 @@ const app = {
             el.classList.toggle('active', el.dataset.page === page);
         });
 
-        this.dom.pageTitle.textContent = page.charAt(0).toUpperCase() + page.slice(1);
+        const navItem = this.navConfig[role]?.find(i => i.id === page);
+        this.dom.pageTitle.textContent = navItem ? navItem.label : (page.charAt(0).toUpperCase() + page.slice(1));
 
         // Cleanup Operations Dock if exists (it's appended to body now)
         const existingDock = document.getElementById('ops-dock');
@@ -787,13 +876,13 @@ const app = {
             if (role === 'admin') Dashboard.loadStats();
         } else if (page === 'settings') {
             this.loadPage('profile', false, true, true); // Redirect to profile
-        } else if (page === 'products') {
-            this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Products Module</h3><p class="text-muted">Coming Soon...</p></div>`;
+        } else if (page === 'workspace') {
+            const title = role === 'admin' ? 'Workspace Module' : 'Products Module';
+            this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>${title}</h3><p class="text-muted">Coming Soon...</p></div>`;
         } else if (page === 'sales') {
             this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Sales Module</h3><p class="text-muted">Coming Soon...</p></div>`;
         } else if (page === 'profile') {
             this.renderProfile();
-            this.dom.pageTitle.textContent = 'Profile';
         } else if (page === 'analytics') {
             this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Analytics Module</h3><p class="text-muted">Coming Soon...</p></div>`;
         } else if (page === 'operations') {
@@ -1024,7 +1113,7 @@ const app = {
     getOpIcon(id) {
         const icons = {
             sales: '💰', expenses: '💸', income: '📈', notes: '📝',
-            inventory: '📦', products: '🛍️', customers: '👥', categories: '🏷️',
+            inventory: '📦', products: '🛍️', workspace: '🛍️', customers: '👥', categories: '🏷️',
             invoices: '🧾', reports: '📊', loans: '🏦', assets: '🏢',
             invoices: '🧾', reports: '📊', loans: '🏦', assets: '🏢',
             maintenance: '🔧'
@@ -1114,8 +1203,10 @@ const app = {
                         <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
                     </div>
                     <div class="theme-buttons">
-                         <button type="button" class="btn-ghost theme-btn-profile ${this.state.theme === 'dark' ? 'active' : ''}" data-theme="dark">🌙 Dark</button>
-                         <button type="button" class="btn-ghost theme-btn-profile ${this.state.theme === 'light' ? 'active' : ''}" data-theme="light">☀️ Light</button>
+                        <label class="theme-switch" title="Toggle theme">
+                            <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
+                            <span class="theme-slider"></span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -1178,7 +1269,9 @@ const app = {
             content += `
             <div class="settings-section">
                 <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
-                <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
+                
+                <!-- 1. Change Password -->
+                <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 1rem;">
                      <div id="password-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
                         <span style="font-weight: 500;">Change Password</span>
                         <span>▼</span>
@@ -1214,6 +1307,47 @@ const app = {
                         </form>
                     </div>
                 </div>
+
+                <!-- 2. Security PIN -->
+                <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
+                     <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-weight: 500;">Security PIN</span>
+                            <span class="badge ${this.state.hasSecurityPin ? 'badge-success' : 'badge-warning'}" style="font-size: 0.7rem;">
+                                ${this.state.hasSecurityPin ? 'Active' : 'Not Set'}
+                            </span>
+                        </div>
+                        <span>▼</span>
+                     </div>
+                     <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Used for sensitive actions like deleting branches.
+                        </p>
+                        <div id="pin-message" class="message-box hidden"></div>
+                        <form id="pin-form" class="auth-form" style="max-width: 100%;">
+                            ${this.state.hasSecurityPin ? `
+                                <div class="input-group">
+                                    <label>Current PIN</label>
+                                    <input type="password" id="pin-old" required maxlength="6" placeholder="Enter current PIN" autocomplete="off">
+                                </div>
+                            ` : ''}
+                            
+                            <div class="input-group">
+                                <label>${this.state.hasSecurityPin ? 'New PIN' : 'Create PIN'}</label>
+                                <input type="password" id="pin-new" required maxlength="6" minlength="4" placeholder="Enter 4-6 digit PIN" autocomplete="off">
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Confirm PIN</label>
+                                <input type="password" id="pin-confirm" required maxlength="6" minlength="4" placeholder="Confirm PIN" autocomplete="off">
+                            </div>
+
+                            <button type="submit" class="btn-primary" style="width: auto;">
+                                ${this.state.hasSecurityPin ? 'Update PIN' : 'Set PIN'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
              `;
         }
@@ -1224,16 +1358,13 @@ const app = {
 
         // Bind Events (setTimeout 0)
         setTimeout(() => {
-            // Theme Buttons
-            document.querySelectorAll('.theme-btn-profile').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const theme = btn.dataset.theme;
-                    if (this.state.theme !== theme) {
-                        this.setTheme(theme, true);
-                        // Update buttons active state
-                        document.querySelectorAll('.theme-btn-profile').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        this.showToast(`Switched to ${theme} mode`, 'success');
+            // Profile Switch Logic
+            document.querySelectorAll('.theme-switch-input').forEach(toggle => {
+                toggle.addEventListener('change', () => {
+                    const newTheme = toggle.checked ? 'light' : 'dark';
+                    if (this.state.theme !== newTheme) {
+                        this.setTheme(newTheme, true);
+                        this.showToast(`Switched to ${newTheme} mode`, 'success');
                     }
                 });
             });
@@ -1319,12 +1450,66 @@ const app = {
                     pwdHeader.addEventListener('click', () => {
                         pwdContent.classList.toggle('hidden');
                         pwdHeader.querySelector('span:last-child').textContent = pwdContent.classList.contains('hidden') ? '▼' : '▲';
-
-                        // Auto-scroll when expanding
                         if (!pwdContent.classList.contains('hidden')) {
                             setTimeout(() => {
                                 pwdContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }, 100);
+                        }
+                    });
+                }
+
+                // PIN Collapsible
+                const pinHeader = document.getElementById('pin-section-header');
+                const pinContent = document.getElementById('pin-section-content');
+                if (pinHeader && pinContent) {
+                    pinHeader.addEventListener('click', () => {
+                        pinContent.classList.toggle('hidden');
+                        pinHeader.querySelector('span:last-child').textContent = pinContent.classList.contains('hidden') ? '▼' : '▲';
+                        if (!pinContent.classList.contains('hidden')) {
+                            setTimeout(() => pinContent.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+                        }
+                    });
+                }
+
+                // PIN Form Submit
+                const pinForm = document.getElementById('pin-form');
+                if (pinForm) {
+                    pinForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const btn = pinForm.querySelector('button[type="submit"]');
+                        const oldPinInput = document.getElementById('pin-old');
+                        const oldPin = oldPinInput ? oldPinInput.value : null;
+                        const newPin = document.getElementById('pin-new').value;
+                        const confirmPin = document.getElementById('pin-confirm').value;
+
+                        if (newPin !== confirmPin) {
+                            this.showMessage('pin-message', 'PINs do not match!', 'error');
+                            return;
+                        }
+
+                        if (!/^\d{4,6}$/.test(newPin)) {
+                            this.showMessage('pin-message', 'PIN must be 4-6 digits.', 'error');
+                            return;
+                        }
+
+                        try {
+                            btn.textContent = 'Saving...';
+                            btn.disabled = true;
+                            this.hideMessage('pin-message');
+
+                            await Auth.setSecurityPin(newPin, oldPin);
+
+                            this.state.hasSecurityPin = true;
+                            this.showToast('Security PIN updated!', 'success');
+
+                            // Re-render to show updated status UI
+                            this.renderProfile();
+
+                        } catch (err) {
+                            console.error(err);
+                            this.showMessage('pin-message', err.message, 'error');
+                            btn.textContent = 'Retry';
+                            btn.disabled = false;
                         }
                     });
                 }
@@ -1593,13 +1778,11 @@ const app = {
         if (Dashboard) {
             Dashboard.init();
 
-            if (profile.role === 'enterprise_admin') {
-                // Don't force loadBranches, show home first with stats
-                this.renderHome();
-                Dashboard.loadStats();
-            } else {
-                this.renderHome();
-            }
+            // Detect initial page from URL or default to home
+            const initialPage = new URLSearchParams(window.location.search).get('page') || 'home';
+
+            // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync
+            this.loadPage(initialPage, true, true, true);
         }
     }
 };

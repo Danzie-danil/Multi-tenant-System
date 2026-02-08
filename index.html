@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>BMS - Business Management System</title>
 
     <!-- Google Fonts - Inter -->
@@ -118,6 +119,9 @@
                         </div>
                     </div>
                     <button type="submit" class="btn-primary">Branch Login →</button>
+                    <div style="text-align: center; margin-top: 0.5rem;">
+                        <a href="#" id="branch-forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
+                    </div>
                 </form>
 
                 <!-- Register Form -->
@@ -163,6 +167,21 @@
                             Back to Login</a>
                     </div>
                 </form>
+
+                <!-- Branch Password Reset Info (Card instead of form) -->
+                <div id="branch-reset-info" class="auth-form hidden" style="text-align: center; padding: 1rem 0;">
+                    <div class="loader-container">
+                        <div class="rolling-loader"></div>
+                    </div>
+                    <h3 style="margin-bottom: 0.75rem;">Password Reset Restricted</h3>
+                    <p style="color: var(--text-muted); line-height: 1.5; margin-bottom: 1.5rem;">
+                        Branch accounts are managed by your Enterprise Administrator.<br>
+                        Please <strong>contact your manager or admin</strong> to have your password reset.
+                    </p>
+                    <button type="button" class="btn-ghost" id="branch-back-to-login" style="width: 100%;">
+                        ← Back to Branch Login
+                    </button>
+                </div>
             </div>
         </main>
 
@@ -204,7 +223,7 @@
                                 <line x1="3" y1="18" x2="21" y2="18"></line>
                             </svg>
                         </button>
-                        <h2 id="page-title">Operations</h2>
+                        <h2 id="page-title"></h2>
                     </div>
 
                     <div style="display: flex; gap: 0.75rem; align-items: center;">
@@ -227,7 +246,10 @@
                             </button>
                         </div>
 
-                        <button id="theme-toggle-btn" class="btn-icon" title="Toggle theme">🌙</button>
+                        <label class="theme-switch" title="Toggle theme">
+                            <input type="checkbox" id="theme-toggle-btn">
+                            <span class="theme-slider"></span>
+                        </label>
                         <button id="quick-logout-btn" class="btn-icon" title="Logout"
                             style="color: var(--danger); border-color: rgba(239,68,68,0.3);">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -272,13 +294,15 @@
 
                 <div class="input-group">
                     <label>Branch Login ID</label>
-                    <input type="text" id="branch-login-id" readonly
-                        style="background: var(--bg-glass); cursor: not-allowed; color: var(--text-dim);">
+                    <input type="text" id="branch-login-id" name="field_branch_id_random" readonly tabindex="-1"
+                        autocomplete="off" data-lpignore="true" data-1password-ignore="true" data-form-type="other"
+                        style="background: var(--bg-glass); cursor: default; color: var(--text-dim); pointer-events: none; user-select: none;">
                 </div>
                 <div class="input-group">
                     <label>Manager Password (Auto-generated)</label>
-                    <input type="text" id="branch-password" readonly
-                        style="background: var(--bg-glass); cursor: not-allowed; color: var(--text-dim);">
+                    <input type="text" id="branch-password" name="field_branch_pw_random" readonly tabindex="-1"
+                        autocomplete="off" data-lpignore="true" data-1password-ignore="true" data-form-type="other"
+                        style="background: var(--bg-glass); cursor: default; color: var(--text-dim); pointer-events: none; user-select: none;">
                 </div>
 
                 <div class="flex gap-2" style="margin-top: 0.5rem;">
@@ -332,6 +356,37 @@
         </div>
     </div>
 
+    <!-- Password Reset Success Modal -->
+    <div id="reset-success-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="text-align: center; max-width: 450px;">
+            <div style="font-size: 4rem; margin-bottom: 1rem;">🔐</div>
+            <h3 class="card-title" style="margin-bottom: 1rem;">Password Updated!</h3>
+            <div
+                style="background: var(--bg-glass); padding: 1.25rem; border-radius: var(--radius-lg); margin-bottom: 1.5rem; text-align: left; border: 1px solid var(--border);">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">New Branch Credentials:</p>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <div style="flex: 1;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">Login ID:</span><br>
+                        <code id="reset-success-login-id" style="font-size: 1rem;">-</code>
+                    </div>
+                    <button class="btn-icon" onclick="Dashboard.copySuccessDetail('reset-success-login-id', this)"
+                        title="Copy Login ID">📋</button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="flex: 1;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">New Password:</span><br>
+                        <code id="reset-success-password" style="font-size: 1rem;">-</code>
+                    </div>
+                    <button class="btn-icon" onclick="Dashboard.copySuccessDetail('reset-success-password', this)"
+                        title="Copy Password">📋</button>
+                </div>
+            </div>
+            <button class="btn-primary" style="width: 100%;" data-close-modal="reset-success-modal">Done</button>
+        </div>
+    </div>
+
     <!-- Confirmation Modal -->
     <div id="confirm-modal" class="modal-overlay hidden">
         <div class="modal-content" style="max-width: 400px;">
@@ -341,6 +396,67 @@
                 <button class="btn-ghost" style="flex:1" data-close-modal="confirm-modal">Cancel</button>
                 <button id="confirm-action-btn" class="btn-primary" style="flex:1">Confirm</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Security Verification Modal -->
+    <div id="verification-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="card-header" style="border-bottom: none; padding-bottom: 0;">
+                <h3 id="verify-title" class="card-title">Security Verification</h3>
+            </div>
+            <p id="verify-message" style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">
+                This action requires additional security.
+            </p>
+
+            <form id="verification-form">
+                <!-- Step 1: Branch Name Confirmation -->
+                <div id="verify-step-name" class="hidden">
+                    <div class="input-group">
+                        <label>Type Branch Name to Confirm</label>
+                        <input type="text" id="verify-branch-name" placeholder="Enter branch name exactly"
+                            autocomplete="off">
+                        <small style="color: var(--text-muted);">Please type: <strong
+                                id="verify-target-name"></strong></small>
+                    </div>
+                </div>
+
+                <!-- Step 2: PIN Confirmation -->
+                <div id="verify-step-pin" class="hidden" style="margin-top: 1rem;">
+                    <div class="input-group">
+                        <label id="verify-pin-label">Enter Security PIN</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="verify-pin" placeholder="Enter 4-digit PIN" maxlength="6"
+                                autocomplete="off">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2b: Create PIN (If not set) -->
+                <div id="verify-step-create-pin" class="hidden" style="margin-top: 1rem;">
+                    <div class="input-group">
+                        <label>Create Security PIN</label>
+                        <input type="password" id="verify-create-pin" placeholder="Enter new 4-6 digit PIN"
+                            maxlength="6" minlength="4" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label>Confirm Security PIN</label>
+                        <input type="password" id="verify-confirm-pin" placeholder="Confirm new PIN" maxlength="6"
+                            minlength="4" autocomplete="off">
+                    </div>
+                    <small style="color: var(--text-muted);">You need to set a PIN before you can delete this
+                        branch.</small>
+                </div>
+
+                <div id="verify-feedback" class="message-box hidden" style="margin-top: 1rem;"></div>
+
+                <div class="flex gap-2" style="margin-top: 1.5rem;">
+                    <button type="button" class="btn-ghost" style="flex:1"
+                        data-close-modal="verification-modal">Cancel</button>
+                    <button type="submit" id="verify-submit-btn" class="btn-primary" style="flex:1">Verify &
+                        Proceed</button>
+                </div>
+            </form>
         </div>
     </div>
 

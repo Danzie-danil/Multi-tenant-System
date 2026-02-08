@@ -147,6 +147,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.25rem 2rem;
+    padding-top: calc(1.25rem + env(safe-area-inset-top));
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);

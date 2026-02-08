@@ -83,24 +83,45 @@ export const Auth = {
         if (error) throw error;
         if (!data) throw new Error('Invalid Branch ID or Password');
 
-        this.branch = data;
-        // Set mock profile for immediate usage
-        this.profile = {
-            id: data.id,
-            full_name: data.name,
-            role: 'branch_manager',
-            enterprise_id: data.enterprise_id,
-            branch_id: data.id,
-            branch_login_id: data.branch_login_id,
-            theme: data.theme,
-            currency: data.currency
-        };
-
-        // Persist session
+        // Persist session first to allow RLS access
         localStorage.setItem('bms-branch-token', data.api_token);
         updateSupabaseClient({ 'x-branch-token': data.api_token });
 
-        return data;
+        // Fetch FULL branch details (RPC missing some fields like branch_login_id, theme)
+        const { data: fullBranch, error: fetchError } = await supabase
+            .from('branches')
+            .select('*')
+            .eq('id', data.id)
+            .single();
+
+        if (fetchError || !fullBranch) {
+            // Fallback to partial data if fetch fails
+            this.branch = data;
+            this.profile = {
+                id: data.id,
+                full_name: data.name,
+                role: 'branch_manager',
+                enterprise_id: data.enterprise_id,
+                branch_id: data.id,
+                branch_login_id: loginId, // Fallback to input
+                theme: 'light',
+                currency: 'TZS'
+            };
+        } else {
+            this.branch = fullBranch;
+            this.profile = {
+                id: fullBranch.id,
+                full_name: fullBranch.name,
+                role: 'branch_manager',
+                enterprise_id: fullBranch.enterprise_id,
+                branch_id: fullBranch.id,
+                branch_login_id: fullBranch.branch_login_id,
+                theme: fullBranch.theme,
+                currency: fullBranch.currency
+            };
+        }
+
+        return this.branch;
     },
 
     async createBranchAccount(enterpriseId, name, loginId, password, location) {
@@ -271,6 +292,13 @@ export const Auth = {
         // RPC returns the updated row as a single object (data is the row)
         // Ensure data is structured correctly if it's nested
         this.branch = { ...this.branch, ...data }; // Update local state
+
+        // CRITICAL: Also update the mock profile used by the UI
+        if (this.profile && this.profile.id === branchId) {
+            this.profile.theme = data.theme;
+            this.profile.currency = data.currency;
+        }
+
         return data;
     },
 
@@ -285,6 +313,49 @@ export const Auth = {
 
         if (error) throw error;
         return data;
+    },
+
+    async deleteBranch(branchId, pin) {
+        if (!this.profile?.enterprise_id) throw new Error("No Enterprise ID found");
+
+        const { error } = await supabase.rpc('delete_branch', {
+            p_branch_id: branchId,
+            p_enterprise_id: this.profile.enterprise_id,
+            p_pin: pin
+        });
+
+        if (error) throw error;
+        return true;
+    },
+
+    async setSecurityPin(newPin, oldPin = null) {
+        const { error } = await supabase.rpc('set_security_pin', {
+            p_new_pin: newPin,
+            p_old_pin: oldPin
+        });
+        if (error) throw error;
+        return true;
+    },
+
+    async verifySecurityPin(pin) {
+        const { data, error } = await supabase.rpc('verify_security_pin', {
+            p_pin: pin
+        });
+        if (error) throw error;
+        return data; // true/false
+    },
+
+    async hasSecurityPin() {
+        if (!this.profile?.enterprise_id) return false;
+
+        const { data, error } = await supabase
+            .from('enterprises')
+            .select('security_pin_hash')
+            .eq('id', this.profile.enterprise_id)
+            .single();
+
+        if (error) return false;
+        return !!data.security_pin_hash;
     },
 
     // NEW: Recovery/Completion function
