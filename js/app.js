@@ -761,12 +761,12 @@ const app = {
             { id: 'sales', icon: '💰', label: 'Sales', active: true },
             { id: 'expenses', icon: '💸', label: 'Expenses' },
             { id: 'income', icon: '📈', label: 'Income' },
+            { id: 'notes', icon: '📝', label: 'Notes' },
             { id: 'inventory', icon: '📦', label: 'Inventory' },
             { id: 'customers', icon: '👥', label: 'Customers' },
             { id: 'categories', icon: '🏷️', label: 'Categories' },
             { id: 'invoices', icon: '🧾', label: 'Inv & Rec' },
             { id: 'reports', icon: '📊', label: 'Reports' },
-            { id: 'notes', icon: '📝', label: 'Notes' },
             { id: 'loans', icon: '🏦', label: 'Loans' },
             { id: 'assets', icon: '🏢', label: 'Assets' },
             { id: 'maintenance', icon: '🔧', label: 'Maint.' }
