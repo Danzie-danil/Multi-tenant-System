@@ -149,8 +149,12 @@
 html {
     scroll-behavior: smooth;
     height: 100%;
+    /* iOS fix: use dvh instead of vh */
+    height: 100dvh;
     overscroll-behavior-y: none;
     /* Prevent pull-to-refresh effect */
+    overflow: hidden;
+    /* Prevent body scroll on iOS */
 }
 
 body {
@@ -160,10 +164,15 @@ body {
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
+    min-height: 100dvh;
     height: 100%;
-    overflow-x: hidden;
+    overflow: hidden;
+    /* Prevent body scroll on iOS */
     overscroll-behavior-y: none;
     /* Prevent pull-to-refresh effect */
+    position: fixed;
+    /* iOS fix: prevent body from scrolling */
+    width: 100%;
 }
 
 /* Responsive Typography Scaling */

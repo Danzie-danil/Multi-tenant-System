@@ -6,25 +6,24 @@
 /* App Container */
 .app-container {
     min-height: 100vh;
+    /* iOS fix: use dvh for proper mobile viewport */
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     overscroll-behavior-y: none;
-    /* Prevent chain scrolling */
-    height: 100%;
-    /* iOS sticky fix: changed from overflow-y: auto to visible */
-    overflow-y: visible;
-    /* Allow sticky to work properly on iOS */
+    position: relative;
+    overflow: hidden;
 }
 
 /* Dashboard Layout */
 .dashboard-layout {
     display: flex;
     min-height: 100vh;
+    min-height: 100dvh;
     height: 100%;
-    /* animation removed - content uses .page-enter */
     overscroll-behavior-y: none;
-    /* iOS sticky fix: ensure no overflow restrictions */
-    overflow: visible;
 }
 
 /* Sidebar */
@@ -149,13 +148,14 @@
 .main-content {
     flex: 1;
     margin-left: 17.5rem;
-    /* Converted from 280px */
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    min-height: 100dvh;
     background: transparent;
-    /* iOS sticky fix: ensure no overflow that breaks sticky */
-    overflow: visible;
+    /* This is the scroll container - needed for sticky to work */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* Top Bar */
