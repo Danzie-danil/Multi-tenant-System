@@ -11,8 +11,9 @@
     overscroll-behavior-y: none;
     /* Prevent chain scrolling */
     height: 100%;
-    overflow-y: auto;
-    /* Allow internal scrolling if needed */
+    /* iOS sticky fix: changed from overflow-y: auto to visible */
+    overflow-y: visible;
+    /* Allow sticky to work properly on iOS */
 }
 
 /* Dashboard Layout */
@@ -22,6 +23,8 @@
     height: 100%;
     /* animation removed - content uses .page-enter */
     overscroll-behavior-y: none;
+    /* iOS sticky fix: ensure no overflow restrictions */
+    overflow: visible;
 }
 
 /* Sidebar */
@@ -151,6 +154,8 @@
     flex-direction: column;
     min-height: 100vh;
     background: transparent;
+    /* iOS sticky fix: ensure no overflow that breaks sticky */
+    overflow: visible;
 }
 
 /* Top Bar */
@@ -162,10 +167,12 @@
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
+    /* iOS sticky fix: add webkit prefix and remove transform animation */
+    position: -webkit-sticky;
     position: sticky;
     top: 0;
     z-index: 40;
-    animation: slideDown 0.4s ease;
+    /* Animation removed - transform breaks sticky on iOS */
 }
 
 @keyframes slideDown {
@@ -349,6 +356,8 @@
 
     .top-bar {
         padding: 1rem;
+        /* iOS sticky fix: webkit prefix required */
+        position: -webkit-sticky;
         position: sticky;
         top: 0;
         z-index: 40;
