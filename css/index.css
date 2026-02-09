@@ -696,26 +696,25 @@ select.input-field option {
 /* Toast Notifications */
 .toast-container {
     position: fixed;
-    bottom: 8rem;
-    /* Raised higher above dock */
+    bottom: 2rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 1000;
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* Center items in flex column */
     gap: 0.75rem;
     pointer-events: none;
-    /* Allow clicking through container */
-    transition: left 0.3s ease;
+    transition: all 0.3s ease;
 }
 
-/* Bottom Right Notification Container */
+/* Bottom Center Notification Container (Unified) */
 .notification-container {
     position: fixed;
     bottom: 2rem;
-    right: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    right: auto;
     z-index: 1100;
     display: flex;
     flex-direction: column;
@@ -723,6 +722,15 @@ select.input-field option {
     pointer-events: none;
     max-width: 400px;
     width: 100%;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+/* Dock Safe Mode - Position above dock */
+.notification-container.dock-safe,
+.toast-container.dock-safe {
+    bottom: 6rem;
+    top: auto;
 }
 
 .notification-card {
@@ -733,29 +741,33 @@ select.input-field option {
     padding: 1rem;
     backdrop-filter: blur(10px);
     pointer-events: auto;
-    animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
 }
 
-@keyframes slideInRight {
+@keyframes slideInUp {
     from {
         opacity: 0;
-        transform: translateX(100%);
+        transform: translateY(100%);
     }
 
     to {
         opacity: 1;
-        transform: translateX(0);
+        transform: translateY(0);
     }
 }
 
-@keyframes slideOutRight {
+@keyframes slideOutDown {
     to {
         opacity: 0;
-        transform: translateX(100%);
+        transform: translateY(100%);
     }
+}
+
+.notification-card.hiding {
+    animation: slideOutDown 0.3s forwards;
 }
 
 @keyframes noteTimer {
@@ -765,6 +777,29 @@ select.input-field option {
 
     to {
         width: 0%;
+    }
+}
+
+/* Mobile Notification Adjustments */
+@media (max-width: 768px) {
+    .notification-container {
+        bottom: 5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        right: auto;
+        width: auto;
+        min-width: 280px;
+        max-width: calc(100% - 2rem);
+    }
+
+    .notification-card {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+        animation: slideUpCard 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .notification-card.hiding {
+        animation: slideDownCard 0.3s forwards;
     }
 }
 

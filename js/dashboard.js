@@ -434,6 +434,11 @@ export const Dashboard = {
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                                             </button>
                                             <div class="dropdown-menu dropdown-menu-left view-dropdown">
+                                                <div class="view-item" title="Edit Details" 
+                                                    onclick="Dashboard.openEditBranchModal('${b.id}')">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                    <span>Edit Details</span>
+                                                </div>
                                                 <div class="view-item" title="Reset Password" 
                                                     onclick="Dashboard.openResetPasswordModal('${b.id}', '${b.name.replace(/'/g, "\\'")}', '${b.branch_login_id}')">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -782,8 +787,8 @@ export const Dashboard = {
             await Auth.resetBranchPassword(branchId, newPassword);
 
             // Transition to Success Notification (Bottom Right)
-            const resetModal = document.getElementById('reset-branch-password-modal');
-            if (resetModal) resetModal.classList.add('hidden');
+            // Use app.closeModal to ensure state is cleaned up
+            app.closeModal('reset-branch-password-modal');
 
             // Get Login ID for display
             const loginId = document.getElementById('reset-branch-login-id-display')?.textContent || '-';
@@ -811,6 +816,51 @@ export const Dashboard = {
             app.showMessage('reset-branch-message', error.message, 'error');
         } finally {
             btn.textContent = 'Set Password';
+            btn.disabled = false;
+        }
+    },
+
+    openEditBranchModal(branchId) {
+        const branch = this.branches.find(b => b.id === branchId);
+        if (!branch) {
+            app.showToast('Branch not found', 'error');
+            return;
+        }
+
+        document.getElementById('edit-branch-id').value = branch.id;
+        document.getElementById('edit-branch-name').value = branch.name;
+        const locSelect = document.getElementById('edit-branch-location');
+        if (locSelect) {
+            locSelect.value = branch.location || '';
+        }
+        app.openModal('edit-branch-modal');
+    },
+
+    async handleEditBranch(e) {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalText = btn.textContent;
+        btn.textContent = 'Saving...';
+        btn.disabled = true;
+
+        try {
+            const branchId = document.getElementById('edit-branch-id').value;
+            const name = document.getElementById('edit-branch-name').value;
+            const location = document.getElementById('edit-branch-location').value;
+
+            await Auth.updateBranchDetails(branchId, name, location);
+
+            app.closeModal('edit-branch-modal');
+            app.showNotification('Branch Updated', 'Branch details saved successfully.', 'success');
+
+            // Refund branches to update DOM
+            await this.loadBranches();
+
+        } catch (error) {
+            console.error(error);
+            app.showNotification('Update Failed', error.message, 'error');
+        } finally {
+            btn.textContent = originalText;
             btn.disabled = false;
         }
     },

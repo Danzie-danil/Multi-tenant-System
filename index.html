@@ -501,25 +501,15 @@
 
 
     <!-- PWA Service Worker Registration -->
-    <!-- PWA Service Worker Registration -->
+    <!-- PWA Service Worker (DISABLED FOR DEVELOPMENT) -->
     <script>
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                    })
-                    .catch(err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
-            });
-
-            // Reload when a new service worker takes control
-            let refreshing;
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (refreshing) return;
-                refreshing = true;
-                window.location.reload();
+            // Unregister any existing service workers to ensure live updates
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    registration.unregister();
+                    console.log('ServiceWorker Unregistered for Development');
+                }
             });
         }
     </script>

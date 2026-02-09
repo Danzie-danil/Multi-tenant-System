@@ -156,7 +156,23 @@ const app = {
 
     // Toast Notification System
     showToast(message, type = 'info', duration = 1500) {
-        const container = document.getElementById('toast-container');
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'toast-container';
+            document.body.appendChild(container); // Ensure it exists
+        }
+
+        // Check for Dock Intersection (Branch + Operations)
+        const isBranch = this.state.currentProfile?.role === 'branch_manager';
+        const currentPage = this.state.history[this.state.historyIndex] || 'home';
+        if (isBranch && currentPage === 'operations') {
+            container.classList.add('dock-safe');
+        } else {
+            container.classList.remove('dock-safe');
+        }
+
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         toast.innerHTML = `
@@ -170,7 +186,7 @@ const app = {
         setTimeout(() => toast.remove(), duration);
     },
 
-    // Rich Notification System (Bottom Right)
+    // Rich Notification System (Bottom Center / Top Center)
     showNotification(title, content, type = 'success', duration = 5000) {
         let container = document.getElementById('notification-container');
         if (!container) {
@@ -178,6 +194,15 @@ const app = {
             container.id = 'notification-container';
             container.className = 'notification-container';
             document.body.appendChild(container);
+        }
+
+        // Check for Dock Intersection (Branch + Operations)
+        const isBranch = this.state.currentProfile?.role === 'branch_manager';
+        const currentPage = this.state.history[this.state.historyIndex] || 'home';
+        if (isBranch && currentPage === 'operations') {
+            container.classList.add('dock-safe');
+        } else {
+            container.classList.remove('dock-safe');
         }
 
         const note = document.createElement('div');
@@ -202,7 +227,7 @@ const app = {
 
         // Auto remove
         setTimeout(() => {
-            note.style.animation = 'slideOutRight 0.3s forwards';
+            note.classList.add('hiding');
             setTimeout(() => note.remove(), 300);
         }, duration);
     },
@@ -471,8 +496,11 @@ const app = {
             const btn = e.target.querySelector('button[type="submit"]');
 
             try {
-                btn.textContent = 'Signing in...';
-                btn.disabled = true;
+                // Show Global Loader & Hide Auth Card
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.remove('hidden');
+                if (this.dom.authView) this.dom.authView.classList.add('hidden');
+
                 this.hideMessage('auth-message');
 
                 const { user, profile } = await Auth.login(email, password);
@@ -482,10 +510,18 @@ const app = {
                 await this.loadSettingsFromData(); // Apply user's saved theme
                 this.showToast('Login successful!', 'success');
                 this.renderDashboard();
+
+                // Hide loader only on success (Dashboard will take over)
+                if (loadingScreen) loadingScreen.classList.add('hidden');
+
             } catch (error) {
                 console.error(error);
+                // Restore Auth View on Error
+                if (this.dom.authView) this.dom.authView.classList.remove('hidden');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hidden');
+
                 this.showMessage('auth-message', error.message, 'error');
-            } finally {
                 btn.textContent = 'Sign In';
                 btn.disabled = false;
             }
@@ -499,8 +535,11 @@ const app = {
             const btn = e.target.querySelector('button[type="submit"]');
 
             try {
-                btn.textContent = 'Verifying...';
-                btn.disabled = true;
+                // Show Global Loader & Hide Auth Card
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.remove('hidden');
+                if (this.dom.authView) this.dom.authView.classList.add('hidden');
+
                 this.hideMessage('auth-message');
 
                 const { id, name, enterprise_id, api_token, role } = await Auth.loginBranch(loginId, password);
@@ -511,12 +550,21 @@ const app = {
                 await this.loadSettingsFromData();
                 this.showToast(`Welcome back, ${name}!`, 'success');
                 this.renderDashboard();
+
+                // Hide loader only on success
+                if (loadingScreen) loadingScreen.classList.add('hidden');
+
             } catch (error) {
                 console.error(error);
+                // Restore Auth View on Error
+                if (this.dom.authView) this.dom.authView.classList.remove('hidden');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hidden');
+
                 // Friendly error for branches
                 const message = "Invalid ID or Password. Please contact your admin for a new password.";
                 this.showMessage('auth-message', message, 'error');
-            } finally {
+
                 btn.textContent = 'Branch Login →';
                 btn.disabled = false;
             }

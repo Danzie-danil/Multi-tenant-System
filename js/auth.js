@@ -153,7 +153,12 @@ export const Auth = {
         // Clear Branch Session
         this.branch = null;
         this.profile = null;
-        localStorage.removeItem('bms-branch-token');
+
+        // Clear all local storage except theme
+        const theme = localStorage.getItem('bms-theme');
+        localStorage.clear();
+        if (theme) localStorage.setItem('bms-theme', theme);
+
         updateSupabaseClient({}); // Reset headers
 
         // Show auth view before page may reload
@@ -273,6 +278,23 @@ export const Auth = {
             .from('enterprises')
             .update(updates)
             .eq('id', this.profile.enterprise_id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    async updateBranchDetails(branchId, name, location) {
+        if (!this.user) throw new Error("Not logged in");
+
+        const { data, error } = await supabase
+            .from('branches')
+            .update({
+                name: name.toUpperCase(),
+                location: location ? location.toUpperCase() : null
+            })
+            .eq('id', branchId)
             .select()
             .single();
 
