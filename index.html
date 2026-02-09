@@ -394,6 +394,32 @@
         </div>
     </div>
 
+    <!-- Edit Branch Modal -->
+    <div id="edit-branch-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="card-header">
+                <h3 class="card-title">Edit Branch Details</h3>
+                <button class="btn-ghost" onclick="app.closeModal('edit-branch-modal')">×</button>
+            </div>
+            <form id="edit-branch-form" onsubmit="Dashboard.handleEditBranch(event)" style="margin-top: 1rem;">
+                <input type="hidden" id="edit-branch-id">
+                <div class="input-group">
+                    <label>Branch Name</label>
+                    <input type="text" id="edit-branch-name" required placeholder="e.g. Arusha Main">
+                </div>
+                <div class="input-group">
+                    <label>Location</label>
+                    <input type="text" id="edit-branch-location" required placeholder="e.g. Dar es Salaam">
+                </div>
+                <div class="modal-actions" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    <button type="button" class="btn-ghost" style="flex:1"
+                        onclick="app.closeModal('edit-branch-modal')">Cancel</button>
+                    <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Confirmation Modal -->
     <div id="confirm-modal" class="modal-overlay hidden">
         <div class="modal-content" style="max-width: 400px;">
@@ -475,15 +501,25 @@
 
 
     <!-- PWA Service Worker Registration -->
-    <!-- PWA Service Worker (DISABLED FOR DEVELOPMENT) -->
+    <!-- PWA Service Worker Registration -->
     <script>
         if ('serviceWorker' in navigator) {
-            // Unregister any existing service workers to ensure live updates
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                for (let registration of registrations) {
-                    registration.unregister();
-                    console.log('ServiceWorker Unregistered for Development');
-                }
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+
+            // Reload when a new service worker takes control
+            let refreshing;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                refreshing = true;
+                window.location.reload();
             });
         }
     </script>
