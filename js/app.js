@@ -98,8 +98,8 @@ const app = {
             console.error("Error loading enterprise settings:", e);
         }
 
-        // Check Security PIN Status (Admin only)
-        if (profile.role === 'enterprise_admin') {
+        // Check Security PIN Status (Admin & Branch)
+        if (profile.role === 'enterprise_admin' || profile.role === 'branch_manager') {
             try {
                 this.state.hasSecurityPin = await Auth.hasSecurityPin();
             } catch (e) {
@@ -1264,13 +1264,15 @@ const app = {
             `;
         }
 
-        // 4. Security (Admin Only) - Collapsible
-        if (role === 'admin') {
-            content += `
+        // 4. Security
+        content += `
             <div class="settings-section">
                 <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
-                
-                <!-- 1. Change Password -->
+        `;
+
+        // 4.1 Change Password (Admin Only)
+        if (role === 'admin') {
+            content += `
                 <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 1rem;">
                      <div id="password-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
                         <span style="font-weight: 500;">Change Password</span>
@@ -1307,8 +1309,11 @@ const app = {
                         </form>
                     </div>
                 </div>
+            `;
+        }
 
-                <!-- 2. Security PIN -->
+        // 4.2 Security PIN (Admin & Branch)
+        content += `
                 <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
                      <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1321,7 +1326,7 @@ const app = {
                      </div>
                      <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
                         <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                            Used for sensitive actions like deleting branches.
+                            Used for sensitive actions like deleting ${role === 'admin' ? 'branches' : 'sales'}.
                         </p>
                         <div id="pin-message" class="message-box hidden"></div>
                         <form id="pin-form" class="auth-form" style="max-width: 100%;">
@@ -1349,248 +1354,216 @@ const app = {
                     </div>
                 </div>
             </div>
-             `;
-        }
+        `;
 
         content += `</div></div>`; // Close grid and card
 
         this.dom.contentArea.innerHTML = content;
 
         // Bind Events (setTimeout 0)
+        // Bind Events (setTimeout 0)
         setTimeout(() => {
             // Profile Switch Logic
-            document.querySelectorAll('.theme-switch-input').forEach(toggle => {
-                toggle.addEventListener('change', () => {
-                    const newTheme = toggle.checked ? 'light' : 'dark';
+            document.querySelectorAll(".theme-switch-input").forEach(toggle => {
+                toggle.addEventListener("change", () => {
+                    const newTheme = toggle.checked ? "light" : "dark";
                     if (this.state.theme !== newTheme) {
                         this.setTheme(newTheme, true);
-                        this.showToast(`Switched to ${newTheme} mode`, 'success');
+                        this.showToast(`Switched to ${newTheme} mode`, "success");
                     }
                 });
             });
 
             // Currency
-            const currencySelect = document.getElementById('settings-currency');
+            const currencySelect = document.getElementById("settings-currency");
             if (currencySelect) {
-                currencySelect.addEventListener('change', async (e) => {
+                currencySelect.addEventListener("change", async (e) => {
                     const newCurrency = e.target.value;
                     try {
                         e.target.disabled = true;
-                        // Persist based on role
-                        if (role === 'admin') {
+                        if (role === "admin") {
                             await Auth.updateEnterprise({ currency: newCurrency });
                         } else {
-                            // Allow branch managers to update their branch currency
                             await Auth.updateBranch(profile.id, { currency: newCurrency });
                         }
 
                         if (!this.state.currentProfile) this.state.currentProfile = {};
                         this.state.currentProfile.currency = newCurrency;
                         this.state.currentCurrency = newCurrency;
-                        this.showToast(`Currency updated to ${newCurrency}`, 'success');
+                        this.showToast(`Currency updated to ${newCurrency}`, "success");
                     } catch (err) {
                         console.error(err);
-                        this.showToast('Failed to update currency', 'error');
-                        e.target.value = this.state.currentCurrency || 'TSH';
+                        this.showToast("Failed to update currency", "error");
+                        e.target.value = this.state.currentCurrency || "TZS";
                     } finally {
                         e.target.disabled = false;
                     }
                 });
             }
 
-            // Profile Form (Admin) - Auto-Save Implementation
-            if (role === 'admin') {
-                const nameInput = document.getElementById('settings-name');
+            // Admin Logic
+            if (role === "admin") {
+                // AutoSave
+                const nameInput = document.getElementById("settings-name");
                 if (nameInput && window.AutoSave) {
-                    // Attach auto-save to name input
                     AutoSave.attachToInput(nameInput, async () => {
                         const newName = nameInput.value.trim();
-                        if (!newName) return; // Don't save empty names
-
+                        if (!newName) return;
                         await Auth.updateProfile({ full_name: newName });
                         this.state.currentProfile.full_name = newName;
-
-                        // Update displayed name in sidebar
-                        if (this.dom.userName) {
-                            this.dom.userName.textContent = newName;
-                        }
-                    }, {
-                        key: 'profile-name',
-                        delay: 500,
-                        showIndicator: true
-                    });
+                        if (this.dom.userName) this.dom.userName.textContent = newName;
+                    }, { key: "profile-name", delay: 500, showIndicator: true });
                 }
 
-                // Keep the form submit handler for manual save (optional)
-                const profileForm = document.getElementById('profile-form');
+                // Profile Form
+                const profileForm = document.getElementById("profile-form");
                 if (profileForm) {
-                    profileForm.addEventListener('submit', async (e) => {
+                    profileForm.addEventListener("submit", async (e) => {
                         e.preventDefault();
-                        const name = document.getElementById('settings-name').value;
-                        const btn = profileForm.querySelector('button');
+                        const name = document.getElementById("settings-name").value;
+                        const btn = profileForm.querySelector("button");
                         try {
-                            btn.textContent = 'Saving...';
+                            btn.textContent = "Saving...";
                             btn.disabled = true;
                             await Auth.updateProfile({ full_name: name });
                             this.state.currentProfile.full_name = name;
-                            this.showToast('Profile updated!', 'success');
+                            this.showToast("Profile updated!", "success");
                         } catch (err) {
-                            this.showToast(err.message, 'error');
+                            this.showToast(err.message, "error");
                         } finally {
-                            btn.textContent = 'Save Changes';
+                            btn.textContent = "Save Changes";
                             btn.disabled = false;
                         }
                     });
                 }
 
-                // Password & Collapsible
-                const pwdHeader = document.getElementById('password-section-header');
-                const pwdContent = document.getElementById('password-section-content');
-                if (pwdHeader && pwdContent) {
-                    pwdHeader.addEventListener('click', () => {
-                        pwdContent.classList.toggle('hidden');
-                        pwdHeader.querySelector('span:last-child').textContent = pwdContent.classList.contains('hidden') ? '▼' : '▲';
-                        if (!pwdContent.classList.contains('hidden')) {
-                            setTimeout(() => {
-                                pwdContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }, 100);
-                        }
-                    });
-                }
-
-                // PIN Collapsible
-                const pinHeader = document.getElementById('pin-section-header');
-                const pinContent = document.getElementById('pin-section-content');
-                if (pinHeader && pinContent) {
-                    pinHeader.addEventListener('click', () => {
-                        pinContent.classList.toggle('hidden');
-                        pinHeader.querySelector('span:last-child').textContent = pinContent.classList.contains('hidden') ? '▼' : '▲';
-                        if (!pinContent.classList.contains('hidden')) {
-                            setTimeout(() => pinContent.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
-                        }
-                    });
-                }
-
-                // PIN Form Submit
-                const pinForm = document.getElementById('pin-form');
-                if (pinForm) {
-                    pinForm.addEventListener('submit', async (e) => {
-                        e.preventDefault();
-                        const btn = pinForm.querySelector('button[type="submit"]');
-                        const oldPinInput = document.getElementById('pin-old');
-                        const oldPin = oldPinInput ? oldPinInput.value : null;
-                        const newPin = document.getElementById('pin-new').value;
-                        const confirmPin = document.getElementById('pin-confirm').value;
-
-                        if (newPin !== confirmPin) {
-                            this.showMessage('pin-message', 'PINs do not match!', 'error');
-                            return;
-                        }
-
-                        if (!/^\d{4,6}$/.test(newPin)) {
-                            this.showMessage('pin-message', 'PIN must be 4-6 digits.', 'error');
-                            return;
-                        }
-
-                        try {
-                            btn.textContent = 'Saving...';
-                            btn.disabled = true;
-                            this.hideMessage('pin-message');
-
-                            await Auth.setSecurityPin(newPin, oldPin);
-
-                            this.state.hasSecurityPin = true;
-                            this.showToast('Security PIN updated!', 'success');
-
-                            // Re-render to show updated status UI
-                            this.renderProfile();
-
-                        } catch (err) {
-                            console.error(err);
-                            this.showMessage('pin-message', err.message, 'error');
-                            btn.textContent = 'Retry';
-                            btn.disabled = false;
-                        }
-                    });
-                }
-
-                // Password visibility toggles
-                document.querySelectorAll('.password-toggle').forEach(toggleBtn => {
-                    toggleBtn.addEventListener('click', function () {
-                        const targetId = this.getAttribute('data-target');
-                        const passwordInput = document.getElementById(targetId);
-                        const svg = this.querySelector('svg');
-
-                        if (passwordInput.type === 'password') {
-                            passwordInput.type = 'text';
-                            // Change to eye-off icon
-                            svg.innerHTML = `
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                                <line x1="1" y1="1" x2="23" y2="23"></line>
-                            `;
-                        } else {
-                            passwordInput.type = 'password';
-                            // Change to eye icon
-                            svg.innerHTML = `
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                <circle cx="12" cy="12" r="3"></circle>
-                            `;
-                        }
-                    });
-                });
-
-
-                const secForm = document.getElementById('security-form');
+                // Password Form
+                const secForm = document.getElementById("security-form");
                 if (secForm) {
-                    secForm.addEventListener('submit', async (e) => {
+                    secForm.addEventListener("submit", async (e) => {
                         e.preventDefault();
-                        const p1 = document.getElementById('sec-new-password').value;
-                        const p2 = document.getElementById('sec-confirm-password').value;
+                        const p1 = document.getElementById("sec-new-password").value;
+                        const p2 = document.getElementById("sec-confirm-password").value;
                         if (p1 !== p2) {
-                            this.showMessage('security-message', 'Passwords do not match', 'error');
+                            this.showMessage("security-message", "Passwords do not match", "error");
                             return;
                         }
-                        const btn = secForm.querySelector('button[type="submit"]');
+                        const btn = secForm.querySelector("button[type='submit']");
                         try {
                             btn.disabled = true;
-                            btn.textContent = 'Updating...';
+                            btn.textContent = "Updating...";
                             await Auth.updatePassword(p1);
-                            this.showMessage('security-message', 'Password updated!', 'success');
+                            this.showMessage("security-message", "Password updated!", "success");
                             secForm.reset();
+                            setTimeout(() => this.hideMessage("security-message"), 2000);
 
-                            // Hide success message after 2000ms
                             setTimeout(() => {
-                                this.hideMessage('security-message');
-                            }, 2000);
-
-                            // Auto-collapse section after 3500ms
-                            setTimeout(() => {
-                                const pwdContent = document.getElementById('password-section-content');
-                                const pwdHeader = document.getElementById('password-section-header');
+                                const pwdContent = document.getElementById("password-section-content");
+                                const pwdHeader = document.getElementById("password-section-header");
                                 if (pwdContent && pwdHeader) {
-                                    pwdContent.classList.add('hidden');
-                                    pwdHeader.querySelector('span:last-child').textContent = '▼';
-
-                                    // Auto-scroll to top of profile card
-                                    setTimeout(() => {
-                                        const profileCard = pwdHeader.closest('.card');
-                                        if (profileCard) {
-                                            profileCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                        }
-                                    }, 100);
+                                    pwdContent.classList.add("hidden");
+                                    pwdHeader.querySelector("span:last-child").textContent = "?";
                                 }
                             }, 3500);
-
                         } catch (err) {
-                            this.showMessage('security-message', err.message, 'error');
+                            this.showMessage("security-message", err.message, "error");
                         } finally {
                             btn.disabled = false;
-                            btn.textContent = 'Update Password';
+                            btn.textContent = "Update Password";
+                        }
+                    });
+                }
+
+                const pwdHeader = document.getElementById("password-section-header");
+                const pwdContent = document.getElementById("password-section-content");
+                if (pwdHeader && pwdContent) {
+                    pwdHeader.addEventListener("click", () => {
+                        pwdContent.classList.toggle("hidden");
+                        pwdHeader.querySelector("span:last-child").textContent = pwdContent.classList.contains("hidden") ? "?" : "?";
+                        if (!pwdContent.classList.contains("hidden")) {
+                            setTimeout(() => pwdContent.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
                         }
                     });
                 }
             }
+
+            // Shared Logic
+            document.querySelectorAll(".password-toggle").forEach(toggleBtn => {
+                toggleBtn.addEventListener("click", function () {
+                    const targetId = this.getAttribute("data-target");
+                    const passwordInput = document.getElementById(targetId);
+                    const svg = this.querySelector("svg");
+                    if (passwordInput.type === "password") {
+                        passwordInput.type = "text";
+                        svg.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>`;
+                    } else {
+                        passwordInput.type = "password";
+                        svg.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>`;
+                    }
+                });
+            });
+
+            const pinHeader = document.getElementById("pin-section-header");
+            const pinContent = document.getElementById("pin-section-content");
+            if (pinHeader && pinContent) {
+                pinHeader.addEventListener("click", () => {
+                    pinContent.classList.toggle("hidden");
+                    pinHeader.querySelector("span:last-child").textContent = pinContent.classList.contains("hidden") ? "?" : "?";
+                    if (!pinContent.classList.contains("hidden")) {
+                        setTimeout(() => pinContent.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+                    }
+                });
+            }
+
+            const pinForm = document.getElementById("pin-form");
+            if (pinForm) {
+                pinForm.addEventListener("submit", async (e) => {
+                    e.preventDefault();
+                    this.hideMessage("pin-message");
+
+                    const btn = pinForm.querySelector("button[type='submit']");
+                    const oldPinInput = document.getElementById("pin-old");
+                    const oldPin = oldPinInput ? oldPinInput.value : null;
+                    const newPin = document.getElementById("pin-new").value;
+                    const confirmPin = document.getElementById("pin-confirm").value;
+
+                    if (newPin !== confirmPin) {
+                        this.showMessage("pin-message", "PINs do not match!", "error");
+                        return;
+                    }
+
+                    if (newPin.length < 4) {
+                        this.showMessage("pin-message", "PIN must be 4-6 digits.", "error");
+                        return;
+                    }
+
+                    try {
+                        btn.textContent = "Saving...";
+                        btn.disabled = true;
+
+                        await Auth.setSecurityPin(newPin, oldPin);
+
+                        this.state.hasSecurityPin = true;
+                        this.showToast("Security PIN updated!", "success");
+
+                        const badge = document.querySelector("#pin-section-header .badge");
+                        if (badge) {
+                            badge.className = "badge badge-success";
+                            badge.textContent = "Active";
+                        }
+
+                        setTimeout(() => this.renderProfile(), 1000);
+
+                    } catch (err) {
+                        console.error(err);
+                        this.showMessage("pin-message", err.message, "error");
+                        btn.textContent = "Retry";
+                        btn.disabled = false;
+                    }
+                });
+            }
         }, 0);
+
     },
 
     resetState() {

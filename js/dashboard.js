@@ -426,6 +426,110 @@ export const Dashboard = {
         }, 0);
     },
 
+    async verifyAction(title, message, callback) {
+        // Reset Modal State
+        const form = document.getElementById('verification-form');
+        if (!form) return;
+        form.reset();
+
+        document.getElementById('verify-title').textContent = title || 'Security Verification';
+        document.getElementById('verify-message').textContent = message || 'Please enter your PIN to proceed.';
+
+        // Hide Step 1 (Name) - Generic verification usually implies just PIN
+        document.getElementById('verify-step-name').classList.add('hidden');
+        document.getElementById('verify-target-name').textContent = '';
+
+        // Check if PIN exists
+        let hasPin = false;
+        try { hasPin = await Auth.hasSecurityPin(); } catch (e) { console.error(e); }
+
+        const stepPin = document.getElementById('verify-step-pin');
+        const stepCreate = document.getElementById('verify-step-create-pin');
+        const btn = document.getElementById('verify-submit-btn');
+
+        stepPin.classList.add('hidden');
+        stepCreate.classList.add('hidden');
+        app.hideMessage('verify-feedback');
+
+        if (hasPin) {
+            stepPin.classList.remove('hidden');
+            btn.textContent = 'Verify PIN';
+            setTimeout(() => { if (document.getElementById('verify-pin')) document.getElementById('verify-pin').focus(); }, 100);
+        } else {
+            stepCreate.classList.remove('hidden');
+            btn.textContent = 'Create PIN & Proceed';
+            setTimeout(() => { if (document.getElementById('verify-create-pin')) document.getElementById('verify-create-pin').focus(); }, 100);
+        }
+        btn.disabled = false;
+
+        // Clone form to remove old listeners
+        const newForm = form.cloneNode(true);
+        form.parentNode.replaceChild(newForm, form);
+
+        // Bind Cancel
+        const cancelBtn = newForm.querySelector('button[data-close-modal], #verify-cancel-btn');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => app.closeModal('verification-modal'));
+
+        // Bind Submit
+        newForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('verify-submit-btn'); // Re-select to be safe
+            const pinVal = document.getElementById('verify-pin').value;
+            const newPinVal = document.getElementById('verify-create-pin').value;
+            const confirmPinVal = document.getElementById('verify-confirm-pin').value;
+
+            // Verify Logic
+            if (hasPin) {
+                if (!pinVal || pinVal.length < 4) {
+                    app.showMessage('verify-feedback', 'Invalid PIN', 'error');
+                    return;
+                }
+
+                try {
+                    submitBtn.textContent = 'Verifying...';
+                    submitBtn.disabled = true;
+                    // For branches: Auth.verifySecurityPin calls RPC
+                    // For admins: calls standard verify
+                    const valid = await Auth.verifySecurityPin(pinVal);
+                    if (!valid) throw new Error("Incorrect PIN");
+
+                    app.closeModal('verification-modal');
+                    if (callback) await callback(pinVal); // Pass PIN if needed by action
+                } catch (err) {
+                    app.showMessage('verify-feedback', err.message, 'error');
+                    submitBtn.textContent = 'Verify PIN';
+                    submitBtn.disabled = false;
+                }
+            } else {
+                // Create Logic
+                if (newPinVal !== confirmPinVal) {
+                    app.showMessage('verify-feedback', 'PINs do not match', 'error');
+                    return;
+                }
+                if (newPinVal.length < 4) {
+                    app.showMessage('verify-feedback', 'PIN too short (min 4)', 'error');
+                    return;
+                }
+
+                try {
+                    submitBtn.textContent = 'Setting PIN...';
+                    submitBtn.disabled = true;
+                    await Auth.setSecurityPin(newPinVal);
+
+                    app.closeModal('verification-modal');
+                    if (callback) await callback(newPinVal);
+                } catch (err) {
+                    app.showMessage('verify-feedback', err.message, 'error');
+                    submitBtn.textContent = 'Create PIN & Proceed';
+                    submitBtn.disabled = false;
+                }
+            }
+        });
+
+        app.openModal('verification-modal');
+    },
+
     async openDeleteBranchModal(branchId, branchName) {
         // Reset Modal State
         const form = document.getElementById('verification-form');

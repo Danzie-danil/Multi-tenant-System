@@ -329,6 +329,15 @@ export const Auth = {
     },
 
     async setSecurityPin(newPin, oldPin = null) {
+        if (this.branch) {
+            const { error } = await supabase.rpc('set_branch_security_pin', {
+                p_new_pin: newPin,
+                p_old_pin: oldPin
+            });
+            if (error) throw error;
+            return true;
+        }
+
         const { error } = await supabase.rpc('set_security_pin', {
             p_new_pin: newPin,
             p_old_pin: oldPin
@@ -338,6 +347,14 @@ export const Auth = {
     },
 
     async verifySecurityPin(pin) {
+        if (this.branch) {
+            const { data, error } = await supabase.rpc('verify_branch_security_pin', {
+                p_pin: pin
+            });
+            if (error) throw error;
+            return data;
+        }
+
         const { data, error } = await supabase.rpc('verify_security_pin', {
             p_pin: pin
         });
@@ -346,6 +363,12 @@ export const Auth = {
     },
 
     async hasSecurityPin() {
+        if (this.branch) {
+            const { data, error } = await supabase.rpc('has_branch_security_pin');
+            if (error) return false;
+            return !!data;
+        }
+
         if (!this.profile?.enterprise_id) return false;
 
         const { data, error } = await supabase
