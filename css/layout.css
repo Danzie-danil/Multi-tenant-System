@@ -150,6 +150,8 @@
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
+    /* CRITICAL: Fixed positioning ensures header stays at top on all devices. 
+       DO NOT CHANGE to sticky without thorough mobile testing. */
     position: fixed;
     top: 0;
     right: 0;
@@ -185,6 +187,7 @@
     flex: 1;
     padding: 2rem;
     padding-top: 6rem;
+    /* CRITICAL: Padding ensures content clears the fixed header. DO NOT REDUCE. */
     /* Account for fixed header */
     /* Animation removed - content uses .page-enter */
 }
@@ -328,6 +331,7 @@
     }
 
     .page-container {
+        /* CRITICAL: Mobile padding override to clear fixed header. DO NOT REMOVE. */
         padding: 6rem 1rem 1rem 1rem;
     }
 
@@ -345,7 +349,7 @@
         left: 0;
         /* Reset left position */
         width: 100%;
-        /* iOS sticky fix: webkit prefix required */
+        /* CRITICAL: Fixed positioning for mobile header stability. */
         position: fixed;
         top: 0;
         z-index: 40;
