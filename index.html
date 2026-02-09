@@ -286,7 +286,8 @@
                 </div>
                 <div class="input-group">
                     <label>Location</label>
-                    <input type="text" id="branch-location" required placeholder="City or Address">
+                    <input type="text" id="branch-location" required placeholder="City or Address"
+                        style="text-transform: uppercase;">
                 </div>
 
                 <hr>
@@ -294,11 +295,15 @@
                     Branch Manager Credentials
                 </p>
 
-                <div class="input-group">
-                    <label>Branch Login ID</label>
-                    <input type="text" id="branch-login-id" name="field_branch_id_random" readonly tabindex="-1"
-                        autocomplete="off" data-lpignore="true" data-1password-ignore="true" data-form-type="other"
-                        style="background: var(--bg-glass); cursor: default; color: var(--text-dim); pointer-events: none; user-select: none;">
+                <div
+                    style="padding: 0.75rem 1rem; background: var(--bg-glass); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <span style="font-size: 1.25rem;">🆔</span>
+                        <span style="font-weight: 600; color: var(--text-main);">Branch Login ID</span>
+                    </div>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                        Will be auto-generated and displayed after creating the branch
+                    </p>
                 </div>
                 <div class="input-group">
                     <label>Manager Password (Auto-generated)</label>

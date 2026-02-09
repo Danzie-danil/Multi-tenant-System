@@ -187,6 +187,11 @@ export const Dashboard = {
     },
 
     updateBranchLoginId(name) {
+        if (!name || name.trim() === '') {
+            console.log('[Dashboard] Branch name is empty, skipping ID update');
+            return;
+        }
+
         // Get first letter initials of each word
         const words = name.trim().split(/\s+/);
         const initials = words.map(w => w.charAt(0).toUpperCase()).join('');
@@ -194,21 +199,27 @@ export const Dashboard = {
         // Use the stored next branch number
         const num = String(this.nextBranchNumber || 1).padStart(3, '0');
 
-        // Robust Lookup (Force fresh query)
-        const input = document.getElementById('branch-login-id');
+        // Construct the login ID
         const loginId = `BR-NO-${num}-${initials}`;
 
+        // Robust Lookup - Try multiple methods to ensure we get the input
+        const input = document.getElementById('branch-login-id');
+
         if (input) {
-            console.log(`[Dashboard] Updating Branch ID to: ${loginId}`);
+            console.log(`[Dashboard] Updating Branch ID from "${input.value}" to: ${loginId}`);
             input.value = loginId;
+            // Force a repaint to ensure the update is visible
+            input.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
-            console.error('[Dashboard] Branch Login ID Input NOT FOUND');
+            console.error('[Dashboard] Branch Login ID Input NOT FOUND in DOM');
         }
 
         // Also auto-generate password
         const passwordInput = document.getElementById('branch-password');
         if (passwordInput && !passwordInput.dataset.userEdited) {
-            passwordInput.value = this.generateBranchPassword();
+            const password = this.generateBranchPassword();
+            console.log(`[Dashboard] Updating Password to: ${password}`);
+            passwordInput.value = password;
         }
     },
 
@@ -242,10 +253,44 @@ export const Dashboard = {
 
     async handleCreateBranch() {
         const name = this.dom.branchNameInput.value.toUpperCase();
-        const location = document.getElementById('branch-location').value;
+        const location = document.getElementById('branch-location').value.toUpperCase();
         const loginId = this.dom.branchLoginIdInput.value;
         const password = document.getElementById('branch-password').value;
         const btn = this.dom.createBranchForm.querySelector('button[type="submit"]');
+
+        // Check if PIN is required
+        const hasPin = await Auth.hasSecurityPin();
+
+        if (hasPin) {
+            // Request PIN verification before proceeding
+            let verified = false;
+            await this.verifyAction(
+                'Create Branch',
+                'Enter your security PIN to create a new branch',
+                async () => {
+                    verified = true;
+                }
+            );
+
+            // Open verification modal
+            app.openModal('verification-modal');
+
+            // Wait for modal to close (user either verified or cancelled)
+            await new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    const modal = document.getElementById('verification-modal');
+                    if (!modal || modal.classList.contains('hidden')) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+            });
+
+            if (!verified) {
+                // User cancelled or failed verification
+                return;
+            }
+        }
 
         try {
             btn.textContent = 'Creating...';
@@ -282,7 +327,7 @@ export const Dashboard = {
             console.error(error);
             app.showMessage('branch-modal-message', error.message, 'error');
         } finally {
-            btn.textContent = 'Create Branch';
+            btn.textContent = 'Create Branch →';
             btn.disabled = false;
         }
     },
@@ -353,17 +398,17 @@ export const Dashboard = {
                                                 View
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                                             </button>
-                                            <div class="dropdown-menu dropdown-menu-left premium-dropdown">
-                                                <div class="premium-item" title="Reset Password" 
+                                            <div class="dropdown-menu dropdown-menu-left view-dropdown">
+                                                <div class="view-item" title="Reset Password" 
                                                     onclick="Dashboard.openResetPasswordModal('${b.id}', '${b.name.replace(/'/g, "\\'")}', '${b.branch_login_id}')">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                                                     <span>Reset Pass</span>
                                                 </div>
-                                                <div class="premium-item" title="Copy Details" onclick="Dashboard.copyBranchDetails('${b.id}', this)">
+                                                <div class="view-item" title="Copy Details" onclick="Dashboard.copyBranchDetails('${b.id}', this)">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
                                                     <span>Copy Details</span>
                                                 </div>
-                                                <div class="premium-item" title="Delete Branch" style="color: var(--danger) !important;"
+                                                <div class="view-item" title="Delete Branch" style="color: var(--danger) !important;"
                                                     onclick="Dashboard.openDeleteBranchModal('${b.id}', '${b.name.replace(/'/g, "\\'")}')">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                                                     <span>Delete</span>

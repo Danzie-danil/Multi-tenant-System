@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-bms-v13';
+const CACHE_NAME = 'nexus-bms-v16';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
