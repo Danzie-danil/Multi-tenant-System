@@ -170,6 +170,43 @@ const app = {
         setTimeout(() => toast.remove(), duration);
     },
 
+    // Rich Notification System (Bottom Right)
+    showNotification(title, content, type = 'success', duration = 5000) {
+        let container = document.getElementById('notification-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'notification-container';
+            container.className = 'notification-container';
+            document.body.appendChild(container);
+        }
+
+        const note = document.createElement('div');
+        note.className = 'notification-card';
+        note.innerHTML = `
+            <div style="display: flex; align-items: start; justify-content: space-between;">
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    ${type === 'success' ? '<span style="color: var(--success);">✓</span>' : ''}
+                    ${title}
+                </h4>
+                <button class="btn-ghost" style="padding: 0.2rem; height: auto;" onclick="this.closest('.notification-card').remove()">×</button>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+                ${content}
+            </div>
+            <div style="height: 3px; background: var(--bg-surface-hover); width: 100%; border-radius: 2px; margin-top: 0.5rem; overflow: hidden;">
+                <div style="height: 100%; background: var(--primary); width: 100%; animation: noteTimer ${duration}ms linear forwards;"></div>
+            </div>
+        `;
+
+        container.appendChild(note);
+
+        // Auto remove
+        setTimeout(() => {
+            note.style.animation = 'slideOutRight 0.3s forwards';
+            setTimeout(() => note.remove(), 300);
+        }, duration);
+    },
+
     // Inline Message Box
     showMessage(elementId, message, type = 'info') {
         const el = document.getElementById(elementId);

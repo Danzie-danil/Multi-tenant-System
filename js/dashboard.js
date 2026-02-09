@@ -186,6 +186,41 @@ export const Dashboard = {
         return `${num}-${randomLetters}-${randomDigits}`;
     },
 
+    generateResetPassword() {
+        // Try to get branch number from the displayed Login ID
+        const loginIdDisplay = document.getElementById('reset-branch-login-id-display');
+        let num = '000';
+        if (loginIdDisplay && loginIdDisplay.textContent) {
+            // Extract number from BR-NO-XXX-INITIALS
+            const parts = loginIdDisplay.textContent.split('-');
+            if (parts.length >= 3) {
+                num = parts[2];
+            }
+        }
+
+        // Generate 4 random mixed case letters
+        const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        let randomLetters = '';
+        for (let i = 0; i < 4; i++) {
+            randomLetters += letters.charAt(Math.floor(Math.random() * letters.length));
+        }
+
+        // Generate 4 random digits
+        const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+
+        // Format: XXX-AbCd-1234
+        const password = `${num}-${randomLetters}-${randomDigits}`;
+
+        const pwdInput = document.getElementById('reset-branch-new-password');
+        if (pwdInput) {
+            pwdInput.value = password;
+            // switch to text so user can see it
+            pwdInput.type = 'text';
+            const btn = document.getElementById('toggle-reset-password');
+            if (btn) btn.textContent = 'Hide';
+        }
+    },
+
     updateBranchLoginId(name) {
         if (!name || name.trim() === '') {
             console.log('[Dashboard] Branch name is empty, skipping ID update');
@@ -440,11 +475,15 @@ export const Dashboard = {
                             <label>New Password</label>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <div style="position: relative; flex: 1; display: flex; align-items: center;">
-                                    <input type="password" id="reset-branch-new-password" required minlength="6" placeholder="Enter new password" style="width: 100%; padding-right: 3.5rem;">
+                                    <input type="password" id="reset-branch-new-password" required minlength="6" readonly placeholder="Click Generate Button →" style="width: 100%; padding-right: 3.5rem; cursor: not-allowed; opacity: 0.7;">
                                     <button type="button" id="toggle-reset-password" class="btn-ghost" style="position: absolute; right: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto;" onclick="Dashboard.toggleResetPasswordVisibility()">
                                         Show
                                     </button>
                                 </div>
+                                <button type="button" class="btn-primary" style="padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" onclick="Dashboard.generateResetPassword()" title="Auto-generate Password">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                                    <span>Generate</span>
+                                </button>
                                 <button type="button" id="copy-reset-password-btn" class="btn-ghost" style="padding: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; min-width: 40px;" onclick="Dashboard.copyResetPassword()" title="Copy Password">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                                 </button>
@@ -742,17 +781,31 @@ export const Dashboard = {
 
             await Auth.resetBranchPassword(branchId, newPassword);
 
-            // Close the reset modal
-            app.closeModal('reset-branch-password-modal');
+            // Transition to Success Notification (Bottom Right)
+            const resetModal = document.getElementById('reset-branch-password-modal');
+            if (resetModal) resetModal.classList.add('hidden');
 
-            // Show details in success modal
+            // Get Login ID for display
             const loginId = document.getElementById('reset-branch-login-id-display')?.textContent || '-';
-            document.getElementById('reset-success-login-id').textContent = loginId;
-            document.getElementById('reset-success-password').textContent = newPassword;
 
-            // Open the success modal
-            app.openModal('reset-success-modal');
-            app.showToast('Password reset successfully!', 'success');
+            // Show Rich Notification
+            app.showNotification(
+                'Password Reset Successful',
+                `
+                <div style="font-size: 0.9rem; margin-top: 0.25rem;">
+                    ✅ New password copied to clipboard
+                </div>
+                `,
+                'success',
+                2000 // 2 seconds duration
+            );
+
+            // Auto-copy password logic
+            try {
+                await navigator.clipboard.writeText(newPassword);
+            } catch (err) {
+                console.error('Auto-copy failed:', err);
+            }
         } catch (error) {
             console.error(error);
             app.showMessage('reset-branch-message', error.message, 'error');
