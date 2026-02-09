@@ -150,12 +150,12 @@
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
-    /* iOS sticky fix: add webkit prefix and remove transform animation */
-    position: -webkit-sticky;
-    position: sticky;
+    position: fixed;
     top: 0;
+    right: 0;
+    left: 17.5rem;
+    /* Sidebar width */
     z-index: 40;
-    /* Animation removed - transform breaks sticky on iOS */
 }
 
 @keyframes slideDown {
@@ -182,7 +182,10 @@
 /* Page Container */
 .page-container {
     flex: 1;
+    flex: 1;
     padding: 2rem;
+    padding-top: 6rem;
+    /* Account for fixed header */
     /* Animation removed - content uses .page-enter */
 }
 
@@ -339,9 +342,11 @@
 
     .top-bar {
         padding: 1rem;
+        left: 0;
+        /* Reset left position */
+        width: 100%;
         /* iOS sticky fix: webkit prefix required */
-        position: -webkit-sticky;
-        position: sticky;
+        position: fixed;
         top: 0;
         z-index: 40;
     }
