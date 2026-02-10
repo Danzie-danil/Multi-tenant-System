@@ -71,6 +71,7 @@ const app = {
     // Load theme & currency from data (called after login)
     async loadSettingsFromData() {
         const profile = this.state.currentProfile;
+        if (!profile) return;
 
         // Load Theme from Profile
         if (profile?.theme) {
@@ -372,7 +373,12 @@ const app = {
                 await this.loadSettingsFromData(); // Apply user's saved theme & currency
 
                 // Set initial history state to current page (home) so popstate works
-                window.history.replaceState({ page: 'home' }, '', '?page=home');
+                const existingUrlPage = new URLSearchParams(window.location.search).get('page');
+                if (!existingUrlPage) {
+                    const rolePrefix = this.getRolePrefix(this.state.currentProfile);
+                    const urlPage = this.toRoleUrlPage(rolePrefix, 'home');
+                    window.history.replaceState({ page: 'home' }, '', `?page=${urlPage}`);
+                }
 
                 this.renderDashboard();
             } else {
@@ -388,6 +394,7 @@ const app = {
             // Show auth view on error
             if (this.dom.authView) {
                 this.dom.authView.style.display = '';
+                this.dom.authView.classList.remove('hidden');
             }
             document.body.classList.add('loaded');
         }
@@ -898,13 +905,77 @@ const app = {
         `).join('');
     },
 
+    getRolePrefix(profile = this.state.currentProfile) {
+        return profile?.role === 'enterprise_admin' ? 'enterprise' : 'branch';
+    },
+
+    toRoleUrlPage(rolePrefix, page) {
+        return `${rolePrefix}-${page}`;
+    },
+
+    parseRoleUrlPage(urlPage) {
+        if (!urlPage) return null;
+        const [prefix, ...rest] = urlPage.split('-');
+        if (prefix !== 'enterprise' && prefix !== 'branch') return null;
+        return { prefix, page: rest.join('-') || 'home' };
+    },
+
+    getBranchStorageKey(segment) {
+        const profile = this.state.currentProfile;
+        const branchId = profile?.branch_id || profile?.id || 'unknown';
+        return `bms-branch-${branchId}-${segment}`;
+    },
+
+    readBranchData(segment, fallback = []) {
+        const key = this.getBranchStorageKey(segment);
+        const raw = localStorage.getItem(key);
+        if (!raw) return Array.isArray(fallback) ? [...fallback] : fallback;
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : fallback;
+        } catch (e) {
+            return Array.isArray(fallback) ? [...fallback] : fallback;
+        }
+    },
+
+    writeBranchData(segment, data) {
+        const key = this.getBranchStorageKey(segment);
+        localStorage.setItem(key, JSON.stringify(data || []));
+    },
+
+    generateId() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    },
+
+    bindCollapseControls(container = document) {
+        container.querySelectorAll('[data-collapse-target]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetId = btn.getAttribute('data-collapse-target');
+                const target = document.getElementById(targetId);
+                if (!target) return;
+                const isHidden = target.classList.contains('hidden');
+                if (isHidden) {
+                    target.classList.remove('hidden');
+                } else {
+                    target.classList.add('hidden');
+                }
+                const openText = btn.getAttribute('data-collapse-open-text') || 'Create';
+                const closeText = btn.getAttribute('data-collapse-close-text') || 'Close';
+                btn.textContent = isHidden ? closeText : openText;
+            });
+        });
+    },
+
     loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false) {
         const profile = this.state.currentProfile;
         const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
+        const rolePrefix = this.getRolePrefix(profile);
 
         // Browser History Integration
         if (!skipBrowserPush) {
-            const url = `?page=${page}`;
+            const urlPage = this.toRoleUrlPage(rolePrefix, page);
+            const url = `?page=${urlPage}`;
             // Avoid pushing duplicate state if we're already ON this page (e.g. initial load)
             if (!window.history.state || window.history.state.page !== page) {
                 window.history.pushState({ page: page }, '', url);
@@ -1174,6 +1245,71 @@ const app = {
     setActiveOp(opId, canvas) {
         if (!canvas) return;
 
+        if (opId === 'sales') {
+            this.renderSalesModule(canvas);
+            return;
+        }
+
+        if (opId === 'expenses') {
+            this.renderExpensesModule(canvas);
+            return;
+        }
+
+        if (opId === 'income') {
+            this.renderIncomeModule(canvas);
+            return;
+        }
+
+        if (opId === 'notes') {
+            this.renderNotesModule(canvas);
+            return;
+        }
+
+        if (opId === 'customers') {
+            this.renderCustomersModule(canvas);
+            return;
+        }
+
+        if (opId === 'invoices') {
+            this.renderInvoicesModule(canvas);
+            return;
+        }
+
+        if (opId === 'reports') {
+            this.renderReportsModule(canvas);
+            return;
+        }
+
+        if (opId === 'loans') {
+            this.renderLoansModule(canvas);
+            return;
+        }
+
+        if (opId === 'assets') {
+            this.renderAssetsModule(canvas);
+            return;
+        }
+
+        if (opId === 'maintenance') {
+            this.renderMaintenanceModule(canvas);
+            return;
+        }
+
+        if (opId === 'categories') {
+            this.renderCategoriesModule(canvas);
+            return;
+        }
+
+        if (opId === 'products') {
+            this.renderProductsModule(canvas);
+            return;
+        }
+
+        if (opId === 'inventory') {
+            this.renderInventoryModule(canvas);
+            return;
+        }
+
         let content = '';
         const title = opId.charAt(0).toUpperCase() + opId.slice(1);
 
@@ -1193,6 +1329,1808 @@ const app = {
         `;
 
         canvas.innerHTML = content;
+    },
+
+    renderCategoriesModule(canvas) {
+        const categories = this.readBranchData('categories', []);
+        const products = this.readBranchData('products', []);
+        const rows = categories.map(cat => {
+            const count = products.filter(p => p.categoryId === cat.id).length;
+            return `
+                <tr>
+                    <td data-label="Category"><strong>${cat.name}</strong></td>
+                    <td data-label="Description">${cat.description || '-'}</td>
+                    <td data-label="Products">${count}</td>
+                    <td data-label="Actions" style="text-align: right;">
+                        <button class="btn-ghost" data-category-delete="${cat.id}">Delete</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Categories</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Create groups for your products</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Category</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-category-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-category-body" class="hidden">
+                        <div id="ops-categories-message" class="message-box hidden"></div>
+                        <form id="ops-category-form" class="auth-form" style="max-width: 100%;">
+                        <div class="input-group">
+                            <label>Category Name</label>
+                            <input type="text" id="category-name" placeholder="e.g. Beverages" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Description</label>
+                            <input type="text" id="category-desc" placeholder="Optional short description">
+                        </div>
+                        <button type="submit" class="btn-primary" style="width: auto;">Add Category</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Category List</h4>
+                    </div>
+                    ${categories.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No categories yet. Add your first one above.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Description</th>
+                                        <th>Products</th>
+                                        <th style="text-align: right;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-category-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-categories-message');
+                    const name = document.getElementById('category-name').value.trim();
+                    const description = document.getElementById('category-desc').value.trim();
+                    if (!name) {
+                        this.showMessage('ops-categories-message', 'Category name is required.', 'error');
+                        return;
+                    }
+                    const exists = categories.some(c => c.name.toLowerCase() === name.toLowerCase());
+                    if (exists) {
+                        this.showMessage('ops-categories-message', 'Category already exists.', 'error');
+                        return;
+                    }
+                    const newCategory = {
+                        id: this.generateId(),
+                        name,
+                        description,
+                        createdAt: Date.now()
+                    };
+                    const updated = [newCategory, ...categories];
+                    this.writeBranchData('categories', updated);
+                    this.showToast('Category added', 'success');
+                    this.renderCategoriesModule(canvas);
+                });
+            }
+
+            document.querySelectorAll('[data-category-delete]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.getAttribute('data-category-delete');
+                    const used = products.some(p => p.categoryId === id);
+                    if (used) {
+                        this.showToast('Remove products in this category first', 'error');
+                        return;
+                    }
+                    const updated = categories.filter(c => c.id !== id);
+                    this.writeBranchData('categories', updated);
+                    this.showToast('Category removed', 'info');
+                    this.renderCategoriesModule(canvas);
+                });
+            });
+        }, 0);
+    },
+
+    renderProductsModule(canvas) {
+        const categories = this.readBranchData('categories', []);
+        const products = this.readBranchData('products', []);
+        const options = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+        const rows = products.map(product => {
+            const category = categories.find(c => c.id === product.categoryId);
+            const itemType = product.itemType || 'product';
+            const stockValue = itemType === 'service' ? '-' : (product.stock ?? 0);
+            const lowStockValue = itemType === 'service' ? '-' : (product.lowStock ?? '-');
+            return `
+                <tr>
+                    <td data-label="Product"><strong>${product.name}</strong></td>
+                    <td data-label="Category">${category ? category.name : '-'}</td>
+                    <td data-label="Type">${itemType}</td>
+                    <td data-label="Cost">${this.formatCurrency(product.costPrice || 0)}</td>
+                    <td data-label="Selling">${this.formatCurrency(product.sellingPrice || 0)}</td>
+                    <td data-label="Stock">${stockValue}</td>
+                    <td data-label="Low Stock">${lowStockValue}</td>
+                    <td data-label="Actions" style="text-align: right;">
+                        <button class="btn-ghost" data-product-delete="${product.id}">Delete</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Products</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Create and manage your product catalog</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Product</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-product-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-product-body" class="hidden">
+                        <div id="ops-products-message" class="message-box hidden"></div>
+                        <form id="ops-product-form" class="auth-form" style="max-width: 100%;">
+                        <div class="input-group">
+                            <label>Product Name</label>
+                            <input type="text" id="product-name" placeholder="e.g. Cola 500ml" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Item Type</label>
+                            <select id="product-type" class="input-field">
+                                <option value="product" selected>Product</option>
+                                <option value="service">Service</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Category</label>
+                            <select id="product-category" class="input-field">
+                                <option value="" disabled selected>${categories.length === 0 ? 'Add or create category' : 'Select category'}</option>
+                                ${options}
+                                <option value="__new__">+ Create new category</option>
+                            </select>
+                        </div>
+                        <div id="product-new-category" class="hidden" style="display: grid; gap: 1rem;">
+                            <div class="input-group">
+                                <label>New Category Name</label>
+                                <input type="text" id="product-new-category-name" placeholder="e.g. Beverages">
+                            </div>
+                            <div class="input-group">
+                                <label>New Category Description</label>
+                                <input type="text" id="product-new-category-desc" placeholder="Optional short description">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Cost Price</label>
+                            <input type="number" id="product-cost" min="0" step="0.01" placeholder="0.00" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Selling Price</label>
+                            <input type="number" id="product-selling" min="0" step="0.01" placeholder="0.00" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Unit</label>
+                            <input type="text" id="product-unit" placeholder="e.g. bottle, pack">
+                        </div>
+                        <div class="input-group" id="product-stock-group">
+                            <label>Opening Stock</label>
+                            <input type="number" id="product-stock" min="0" step="1" placeholder="0">
+                        </div>
+                        <div class="input-group" id="product-low-group">
+                            <label>Low Stock Alert</label>
+                            <input type="number" id="product-low" min="0" step="1" placeholder="5" value="5">
+                        </div>
+                        <button type="submit" class="btn-primary" style="width: auto;">Add Product</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Product List</h4>
+                    </div>
+                    ${products.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No products yet. Add your first product above.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Category</th>
+                                        <th>Type</th>
+                                        <th>Cost</th>
+                                        <th>Selling</th>
+                                        <th>Stock</th>
+                                        <th>Low Stock</th>
+                                        <th style="text-align: right;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const typeSelect = document.getElementById('product-type');
+            const categorySelect = document.getElementById('product-category');
+            const newCategoryWrap = document.getElementById('product-new-category');
+            const stockGroup = document.getElementById('product-stock-group');
+            const lowGroup = document.getElementById('product-low-group');
+            const applyTypeState = () => {
+                const typeValue = typeSelect ? typeSelect.value : 'product';
+                const isService = typeValue === 'service';
+                if (stockGroup) stockGroup.style.display = isService ? 'none' : '';
+                if (lowGroup) lowGroup.style.display = isService ? 'none' : '';
+            };
+            if (typeSelect) {
+                applyTypeState();
+                typeSelect.addEventListener('change', applyTypeState);
+            }
+
+            const applyCategoryState = () => {
+                if (!newCategoryWrap || !categorySelect) return;
+                if (categorySelect.value === '__new__') {
+                    newCategoryWrap.classList.remove('hidden');
+                } else {
+                    newCategoryWrap.classList.add('hidden');
+                }
+            };
+            if (categorySelect) {
+                applyCategoryState();
+                categorySelect.addEventListener('change', applyCategoryState);
+            }
+
+            const form = document.getElementById('ops-product-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-products-message');
+                    const name = document.getElementById('product-name').value.trim();
+                    const categoryId = document.getElementById('product-category').value;
+                    const itemType = document.getElementById('product-type').value;
+                    const costPrice = Number(document.getElementById('product-cost').value);
+                    const sellingPrice = Number(document.getElementById('product-selling').value);
+                    const unit = document.getElementById('product-unit').value.trim();
+                    const stockValue = document.getElementById('product-stock').value;
+                    const lowValue = document.getElementById('product-low').value;
+                    const stock = itemType === 'service' ? null : Number(stockValue || 0);
+                    const lowStock = itemType === 'service' ? null : Number(lowValue || 5);
+
+                    if (!name) {
+                        this.showMessage('ops-products-message', 'Product name is required.', 'error');
+                        return;
+                    }
+                    let finalCategoryId = categoryId;
+                    let updatedCategories = categories;
+
+                    if (!categoryId) {
+                        this.showMessage('ops-products-message', 'Select a category first.', 'error');
+                        return;
+                    }
+
+                    if (categoryId === '__new__') {
+                        const newCategoryName = document.getElementById('product-new-category-name').value.trim();
+                        const newCategoryDesc = document.getElementById('product-new-category-desc').value.trim();
+                        if (!newCategoryName) {
+                            this.showMessage('ops-products-message', 'Enter a new category name.', 'error');
+                            return;
+                        }
+                        const exists = categories.some(c => c.name.toLowerCase() === newCategoryName.toLowerCase());
+                        if (exists) {
+                            this.showMessage('ops-products-message', 'Category already exists.', 'error');
+                            return;
+                        }
+                        const newCategory = {
+                            id: this.generateId(),
+                            name: newCategoryName,
+                            description: newCategoryDesc,
+                            createdAt: Date.now()
+                        };
+                        updatedCategories = [newCategory, ...categories];
+                        this.writeBranchData('categories', updatedCategories);
+                        finalCategoryId = newCategory.id;
+                    }
+                    if (!itemType) {
+                        this.showMessage('ops-products-message', 'Select an item type.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(costPrice) || costPrice < 0) {
+                        this.showMessage('ops-products-message', 'Cost price must be 0 or more.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
+                        this.showMessage('ops-products-message', 'Selling price must be 0 or more.', 'error');
+                        return;
+                    }
+                    if (itemType === 'product') {
+                        if (Number.isNaN(stock) || stock < 0) {
+                            this.showMessage('ops-products-message', 'Opening stock must be 0 or more.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(lowStock) || lowStock < 0) {
+                            this.showMessage('ops-products-message', 'Low stock must be 0 or more.', 'error');
+                            return;
+                        }
+                    }
+
+                    const newProduct = {
+                        id: this.generateId(),
+                        name,
+                        itemType,
+                        categoryId: finalCategoryId,
+                        costPrice,
+                        sellingPrice,
+                        unit,
+                        stock,
+                        lowStock: itemType === 'product' ? lowStock : null,
+                        createdAt: Date.now()
+                    };
+                    const updated = [newProduct, ...products];
+                    this.writeBranchData('products', updated);
+                    this.showToast('Product added', 'success');
+                    this.renderProductsModule(canvas);
+                });
+            }
+
+            document.querySelectorAll('[data-product-delete]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.getAttribute('data-product-delete');
+                    const updated = products.filter(p => p.id !== id);
+                    this.writeBranchData('products', updated);
+                    const inventory = this.readBranchData('inventory', []);
+                    const updatedInventory = inventory.filter(i => i.productId !== id);
+                    this.writeBranchData('inventory', updatedInventory);
+                    this.showToast('Product removed', 'info');
+                    this.renderProductsModule(canvas);
+                });
+            });
+        }, 0);
+    },
+
+    renderInventoryModule(canvas) {
+        const products = this.readBranchData('products', []);
+        const inventory = this.readBranchData('inventory', []);
+        const categories = this.readBranchData('categories', []);
+        const stockProducts = products.filter(p => (p.itemType || 'product') === 'product');
+        const options = stockProducts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        const rows = inventory.slice(0, 20).map(item => {
+            const product = products.find(p => p.id === item.productId);
+            const qty = item.type === 'in' ? `+${item.quantity}` : `-${item.quantity}`;
+            return `
+                <tr>
+                    <td data-label="Date">${new Date(item.createdAt).toLocaleString()}</td>
+                    <td data-label="Product">${product ? product.name : '-'}</td>
+                    <td data-label="Type">${item.type === 'in' ? 'Stock In' : 'Stock Out'}</td>
+                    <td data-label="Qty">${qty}</td>
+                    <td data-label="Note">${item.note || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const stockRows = stockProducts.map(product => `
+            <tr>
+                <td data-label="Product"><strong>${product.name}</strong></td>
+                <td data-label="Category">${(categories.find(c => c.id === product.categoryId) || {}).name || '-'}</td>
+                <td data-label="Stock">${product.stock ?? 0}</td>
+                <td data-label="Low Stock">${product.lowStock ?? '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Inventory</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Track stock movements and levels</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">Stock Movement</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-inventory-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-inventory-body" class="hidden">
+                        <div id="ops-inventory-message" class="message-box hidden"></div>
+                        <form id="ops-inventory-form" class="auth-form" style="max-width: 100%;">
+                        <div class="input-group">
+                            <label>Product</label>
+                            <select id="inventory-product" class="input-field" ${stockProducts.length === 0 ? 'disabled' : ''}>
+                                <option value="" disabled selected>${stockProducts.length === 0 ? 'Add products first' : 'Select product'}</option>
+                                ${options}
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Type</label>
+                            <select id="inventory-type" class="input-field" ${stockProducts.length === 0 ? 'disabled' : ''}>
+                                <option value="in">Stock In</option>
+                                <option value="out">Stock Out</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Quantity</label>
+                            <input type="number" id="inventory-qty" min="1" step="1" placeholder="1" required ${stockProducts.length === 0 ? 'disabled' : ''}>
+                        </div>
+                        <div class="input-group">
+                            <label>Note</label>
+                            <input type="text" id="inventory-note" placeholder="Optional reference">
+                        </div>
+                        <button type="submit" class="btn-primary" style="width: auto;" ${stockProducts.length === 0 ? 'disabled' : ''}>Save Movement</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header">
+                        <h4 class="card-title">Current Stock</h4>
+                    </div>
+                    ${stockProducts.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No stock items yet. Add products to track stock.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>Category</th>
+                                        <th>Stock</th>
+                                        <th>Low Stock</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${stockRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Movements</h4>
+                    </div>
+                    ${inventory.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No stock movements yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Product</th>
+                                        <th>Type</th>
+                                        <th>Qty</th>
+                                        <th>Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-inventory-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-inventory-message');
+                    const productId = document.getElementById('inventory-product').value;
+                    const type = document.getElementById('inventory-type').value;
+                    const quantity = Number(document.getElementById('inventory-qty').value);
+                    const note = document.getElementById('inventory-note').value.trim();
+
+                    if (!productId) {
+                        this.showMessage('ops-inventory-message', 'Select a product first.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(quantity) || quantity <= 0) {
+                        this.showMessage('ops-inventory-message', 'Quantity must be at least 1.', 'error');
+                        return;
+                    }
+
+                    const targetProduct = products.find(p => p.id === productId);
+                    if (!targetProduct) {
+                        this.showMessage('ops-inventory-message', 'Product not found.', 'error');
+                        return;
+                    }
+                    const nextStock = type === 'in' ? (targetProduct.stock || 0) + quantity : (targetProduct.stock || 0) - quantity;
+                    if (nextStock < 0) {
+                        this.showMessage('ops-inventory-message', 'Not enough stock for this action.', 'error');
+                        return;
+                    }
+                    const updatedProducts = products.map(p => p.id === productId ? { ...p, stock: nextStock } : p);
+
+                    this.writeBranchData('products', updatedProducts);
+                    const newEntry = {
+                        id: this.generateId(),
+                        productId,
+                        type,
+                        quantity,
+                        note,
+                        createdAt: Date.now()
+                    };
+                    const updatedInventory = [newEntry, ...inventory];
+                    this.writeBranchData('inventory', updatedInventory);
+                    this.showToast('Inventory updated', 'success');
+                    this.renderInventoryModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderSalesModule(canvas) {
+        const categories = this.readBranchData('categories', []);
+        const products = this.readBranchData('products', []);
+        const customers = this.readBranchData('customers', []);
+        const sales = this.readBranchData('sales', []);
+
+        const categoryOptions = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+        const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
+        const rows = sales.slice(0, 20).map(sale => `
+            <tr>
+                <td data-label="Date">${new Date(sale.createdAt).toLocaleString()}</td>
+                <td data-label="Product">${sale.productName || '-'}</td>
+                <td data-label="Category">${sale.categoryName || '-'}</td>
+                <td data-label="Qty">${sale.quantity}</td>
+                <td data-label="Price">${this.formatCurrency(sale.price || 0)}</td>
+                <td data-label="Total">${this.formatCurrency(sale.total || 0)}</td>
+                <td data-label="Customer">${sale.customerName || 'Walk-in'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Sales</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Record sales and track totals</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Sale</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-sales-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-sales-body" class="hidden">
+                        <div id="ops-sales-message" class="message-box hidden"></div>
+                        <form id="ops-sales-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Category</label>
+                                <select id="sale-category" class="input-field" ${categories.length === 0 ? 'disabled' : ''}>
+                                    <option value="all" selected>All Categories</option>
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Product</label>
+                                <select id="sale-product" class="input-field" ${products.length === 0 ? 'disabled' : ''}>
+                                    <option value="" disabled selected>${products.length === 0 ? 'Add products first' : 'Select product'}</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Selling Price</label>
+                                <input type="number" id="sale-price" min="0" step="0.01" placeholder="0.00" readonly>
+                            </div>
+                            <div class="input-group">
+                                <label>Quantity</label>
+                                <input type="number" id="sale-qty" min="1" step="1" placeholder="1" ${products.length === 0 ? 'disabled' : ''}>
+                            </div>
+                            <div class="input-group">
+                                <label>Line Total</label>
+                                <input type="text" id="sale-total" value="${this.formatCurrency(0)}" readonly>
+                            </div>
+                            <div class="input-group">
+                                <label>Customer</label>
+                                <select id="sale-customer" class="input-field">
+                                    <option value="">Walk-in Customer</option>
+                                    ${customerOptions}
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Note</label>
+                                <input type="text" id="sale-note" placeholder="Optional note">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;" ${products.length === 0 ? 'disabled' : ''}>Add Sale</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Sales</h4>
+                    </div>
+                    ${sales.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Product</th>
+                                        <th>Category</th>
+                                        <th>Qty</th>
+                                        <th>Price</th>
+                                        <th>Total</th>
+                                        <th>Customer</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const categorySelect = document.getElementById('sale-category');
+            const productSelect = document.getElementById('sale-product');
+            const priceInput = document.getElementById('sale-price');
+            const qtyInput = document.getElementById('sale-qty');
+            const totalInput = document.getElementById('sale-total');
+
+            const refreshProducts = () => {
+                if (!productSelect) return;
+                const categoryId = categorySelect ? categorySelect.value : 'all';
+                const filtered = categoryId === 'all' ? products : products.filter(p => p.categoryId === categoryId);
+                const options = filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                productSelect.innerHTML = `
+                    <option value="" disabled selected>${filtered.length === 0 ? 'No products in category' : 'Select product'}</option>
+                    ${options}
+                `;
+                if (priceInput) priceInput.value = '';
+                if (totalInput) totalInput.value = this.formatCurrency(0);
+            };
+
+            const updateTotals = () => {
+                const productId = productSelect ? productSelect.value : '';
+                const quantity = Number(qtyInput ? qtyInput.value : 0);
+                const product = products.find(p => p.id === productId);
+                const price = product ? Number(product.sellingPrice || 0) : 0;
+                if (priceInput) priceInput.value = price ? price : 0;
+                const total = quantity > 0 ? price * quantity : 0;
+                if (totalInput) totalInput.value = this.formatCurrency(total);
+            };
+
+            if (categorySelect) {
+                refreshProducts();
+                categorySelect.addEventListener('change', () => {
+                    refreshProducts();
+                });
+            }
+
+            if (productSelect) {
+                productSelect.addEventListener('change', () => updateTotals());
+            }
+
+            if (qtyInput) {
+                qtyInput.addEventListener('input', () => updateTotals());
+            }
+
+            const form = document.getElementById('ops-sales-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-sales-message');
+                    const productId = productSelect ? productSelect.value : '';
+                    const quantity = Number(qtyInput ? qtyInput.value : 0);
+                    const customerId = document.getElementById('sale-customer').value;
+                    const note = document.getElementById('sale-note').value.trim();
+
+                    if (!productId) {
+                        this.showMessage('ops-sales-message', 'Select a product first.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(quantity) || quantity <= 0) {
+                        this.showMessage('ops-sales-message', 'Quantity must be at least 1.', 'error');
+                        return;
+                    }
+
+                    const product = products.find(p => p.id === productId);
+                    if (!product) {
+                        this.showMessage('ops-sales-message', 'Product not found.', 'error');
+                        return;
+                    }
+
+                    if ((product.itemType || 'product') === 'product') {
+                        const nextStock = (product.stock || 0) - quantity;
+                        if (nextStock < 0) {
+                            this.showMessage('ops-sales-message', 'Not enough stock for this sale.', 'error');
+                            return;
+                        }
+                        const updatedProducts = products.map(p => p.id === productId ? { ...p, stock: nextStock } : p);
+                        this.writeBranchData('products', updatedProducts);
+                    }
+
+                    const category = categories.find(c => c.id === product.categoryId);
+                    const customer = customers.find(c => c.id === customerId);
+                    const price = Number(product.sellingPrice || 0);
+                    const total = price * quantity;
+
+                    const newSale = {
+                        id: this.generateId(),
+                        productId,
+                        productName: product.name,
+                        categoryId: product.categoryId,
+                        categoryName: category ? category.name : null,
+                        itemType: product.itemType || 'product',
+                        price,
+                        quantity,
+                        total,
+                        customerId: customerId || null,
+                        customerName: customer ? customer.name : null,
+                        note,
+                        createdAt: Date.now()
+                    };
+
+                    this.writeBranchData('sales', [newSale, ...sales]);
+                    this.showToast('Sale recorded', 'success');
+                    this.renderSalesModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderExpensesModule(canvas) {
+        const expenses = this.readBranchData('expenses', []);
+        const rows = expenses.slice(0, 20).map(expense => `
+            <tr>
+                <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
+                <td data-label="Title">${expense.title}</td>
+                <td data-label="Category">${expense.category || '-'}</td>
+                <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
+                <td data-label="Note">${expense.note || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Expenses</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Track spending and operational costs</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Expense</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-expense-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-expense-body" class="hidden">
+                        <div id="ops-expense-message" class="message-box hidden"></div>
+                        <form id="ops-expense-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Title</label>
+                                <input type="text" id="expense-title" placeholder="e.g. Rent" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Category</label>
+                                <input type="text" id="expense-category" placeholder="e.g. Utilities">
+                            </div>
+                            <div class="input-group">
+                                <label>Amount</label>
+                                <input type="number" id="expense-amount" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Note</label>
+                                <input type="text" id="expense-note" placeholder="Optional note">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Expense</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Expenses</h4>
+                    </div>
+                    ${expenses.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Title</th>
+                                        <th>Category</th>
+                                        <th>Amount</th>
+                                        <th>Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-expense-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-expense-message');
+                    const title = document.getElementById('expense-title').value.trim();
+                    const category = document.getElementById('expense-category').value.trim();
+                    const amount = Number(document.getElementById('expense-amount').value);
+                    const note = document.getElementById('expense-note').value.trim();
+
+                    if (!title) {
+                        this.showMessage('ops-expense-message', 'Expense title is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(amount) || amount < 0) {
+                        this.showMessage('ops-expense-message', 'Amount must be 0 or more.', 'error');
+                        return;
+                    }
+
+                    const newExpense = {
+                        id: this.generateId(),
+                        title,
+                        category,
+                        amount,
+                        note,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('expenses', [newExpense, ...expenses]);
+                    this.showToast('Expense added', 'success');
+                    this.renderExpensesModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderIncomeModule(canvas) {
+        const incomeEntries = this.readBranchData('income', []);
+        const rows = incomeEntries.slice(0, 20).map(entry => `
+            <tr>
+                <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
+                <td data-label="Title">${entry.title}</td>
+                <td data-label="Source">${entry.source || '-'}</td>
+                <td data-label="Amount">${this.formatCurrency(entry.amount || 0)}</td>
+                <td data-label="Note">${entry.note || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Income</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Track extra income streams</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Income</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-income-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-income-body" class="hidden">
+                        <div id="ops-income-message" class="message-box hidden"></div>
+                        <form id="ops-income-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Title</label>
+                                <input type="text" id="income-title" placeholder="e.g. Service income" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Source</label>
+                                <input type="text" id="income-source" placeholder="Optional source">
+                            </div>
+                            <div class="input-group">
+                                <label>Amount</label>
+                                <input type="number" id="income-amount" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Note</label>
+                                <input type="text" id="income-note" placeholder="Optional note">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Income</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Income</h4>
+                    </div>
+                    ${incomeEntries.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No income entries recorded yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Title</th>
+                                        <th>Source</th>
+                                        <th>Amount</th>
+                                        <th>Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-income-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-income-message');
+                    const title = document.getElementById('income-title').value.trim();
+                    const source = document.getElementById('income-source').value.trim();
+                    const amount = Number(document.getElementById('income-amount').value);
+                    const note = document.getElementById('income-note').value.trim();
+
+                    if (!title) {
+                        this.showMessage('ops-income-message', 'Income title is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(amount) || amount < 0) {
+                        this.showMessage('ops-income-message', 'Amount must be 0 or more.', 'error');
+                        return;
+                    }
+
+                    const newIncome = {
+                        id: this.generateId(),
+                        title,
+                        source,
+                        amount,
+                        note,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('income', [newIncome, ...incomeEntries]);
+                    this.showToast('Income added', 'success');
+                    this.renderIncomeModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderNotesModule(canvas) {
+        const notes = this.readBranchData('notes', []);
+        const rows = notes.slice(0, 20).map(note => `
+            <tr>
+                <td data-label="Date">${new Date(note.createdAt).toLocaleString()}</td>
+                <td data-label="Title">${note.title}</td>
+                <td data-label="Details">${note.details || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Notes</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Quick notes for daily operations</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Note</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-notes-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-notes-body" class="hidden">
+                        <div id="ops-notes-message" class="message-box hidden"></div>
+                        <form id="ops-notes-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Title</label>
+                                <input type="text" id="note-title" placeholder="e.g. Delivery reminder" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Details</label>
+                                <input type="text" id="note-details" placeholder="Optional details">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Note</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Notes</h4>
+                    </div>
+                    ${notes.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Title</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-notes-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-notes-message');
+                    const title = document.getElementById('note-title').value.trim();
+                    const details = document.getElementById('note-details').value.trim();
+                    if (!title) {
+                        this.showMessage('ops-notes-message', 'Note title is required.', 'error');
+                        return;
+                    }
+                    const newNote = {
+                        id: this.generateId(),
+                        title,
+                        details,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('notes', [newNote, ...notes]);
+                    this.showToast('Note added', 'success');
+                    this.renderNotesModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderCustomersModule(canvas) {
+        const customers = this.readBranchData('customers', []);
+        const rows = customers.slice(0, 20).map(customer => `
+            <tr>
+                <td data-label="Name">${customer.name}</td>
+                <td data-label="Phone">${customer.phone || '-'}</td>
+                <td data-label="Email">${customer.email || '-'}</td>
+                <td data-label="Address">${customer.address || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Customers</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Manage customer contacts</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Customer</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-customers-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-customers-body" class="hidden">
+                        <div id="ops-customers-message" class="message-box hidden"></div>
+                        <form id="ops-customers-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Customer Name</label>
+                                <input type="text" id="customer-name" placeholder="e.g. John Doe" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Phone</label>
+                                <input type="text" id="customer-phone" placeholder="Optional">
+                            </div>
+                            <div class="input-group">
+                                <label>Email</label>
+                                <input type="email" id="customer-email" placeholder="Optional">
+                            </div>
+                            <div class="input-group">
+                                <label>Address</label>
+                                <input type="text" id="customer-address" placeholder="Optional">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Customer</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Customer List</h4>
+                    </div>
+                    ${customers.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No customers added yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Phone</th>
+                                        <th>Email</th>
+                                        <th>Address</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-customers-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-customers-message');
+                    const name = document.getElementById('customer-name').value.trim();
+                    const phone = document.getElementById('customer-phone').value.trim();
+                    const email = document.getElementById('customer-email').value.trim();
+                    const address = document.getElementById('customer-address').value.trim();
+                    if (!name) {
+                        this.showMessage('ops-customers-message', 'Customer name is required.', 'error');
+                        return;
+                    }
+                    const newCustomer = {
+                        id: this.generateId(),
+                        name,
+                        phone,
+                        email,
+                        address,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('customers', [newCustomer, ...customers]);
+                    this.showToast('Customer added', 'success');
+                    this.renderCustomersModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderInvoicesModule(canvas) {
+        const invoices = this.readBranchData('invoices', []);
+        const customers = this.readBranchData('customers', []);
+        const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
+        const rows = invoices.slice(0, 20).map(inv => `
+            <tr>
+                <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
+                <td data-label="Invoice">${inv.invoiceNumber}</td>
+                <td data-label="Customer">${inv.customerName || '-'}</td>
+                <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
+                <td data-label="Status">${inv.status}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Invoices & Receivables</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Track customer invoices</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Invoice</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-invoices-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-invoices-body" class="hidden">
+                        <div id="ops-invoices-message" class="message-box hidden"></div>
+                        <form id="ops-invoices-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Invoice Number</label>
+                                <input type="text" id="invoice-number" placeholder="e.g. INV-001" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Customer</label>
+                                <select id="invoice-customer" class="input-field">
+                                    <option value="">Select customer</option>
+                                    ${customerOptions}
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Amount</label>
+                                <input type="number" id="invoice-amount" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Status</label>
+                                <select id="invoice-status" class="input-field">
+                                    <option value="unpaid" selected>Unpaid</option>
+                                    <option value="paid">Paid</option>
+                                    <option value="partial">Partially Paid</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Due Date</label>
+                                <input type="date" id="invoice-due">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Invoice</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Invoices</h4>
+                    </div>
+                    ${invoices.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No invoices yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Invoice</th>
+                                        <th>Customer</th>
+                                        <th>Amount</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-invoices-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-invoices-message');
+                    const invoiceNumber = document.getElementById('invoice-number').value.trim();
+                    const customerId = document.getElementById('invoice-customer').value;
+                    const amount = Number(document.getElementById('invoice-amount').value);
+                    const status = document.getElementById('invoice-status').value;
+                    const dueDate = document.getElementById('invoice-due').value;
+                    if (!invoiceNumber) {
+                        this.showMessage('ops-invoices-message', 'Invoice number is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(amount) || amount < 0) {
+                        this.showMessage('ops-invoices-message', 'Amount must be 0 or more.', 'error');
+                        return;
+                    }
+                    const customer = customers.find(c => c.id === customerId);
+                    const newInvoice = {
+                        id: this.generateId(),
+                        invoiceNumber,
+                        customerId: customerId || null,
+                        customerName: customer ? customer.name : null,
+                        amount,
+                        status,
+                        dueDate,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('invoices', [newInvoice, ...invoices]);
+                    this.showToast('Invoice added', 'success');
+                    this.renderInvoicesModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderReportsModule(canvas) {
+        const reports = this.readBranchData('reports', []);
+        const rows = reports.slice(0, 20).map(report => `
+            <tr>
+                <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
+                <td data-label="Type">${report.type}</td>
+                <td data-label="Period">${report.period}</td>
+                <td data-label="Note">${report.note || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Reports</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Save report requests for quick access</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Report Request</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-reports-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-reports-body" class="hidden">
+                        <div id="ops-reports-message" class="message-box hidden"></div>
+                        <form id="ops-reports-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Report Type</label>
+                                <select id="report-type" class="input-field">
+                                    <option value="sales">Sales</option>
+                                    <option value="inventory">Inventory</option>
+                                    <option value="expenses">Expenses</option>
+                                    <option value="income">Income</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Period</label>
+                                <select id="report-period" class="input-field">
+                                    <option value="today">Today</option>
+                                    <option value="week">This Week</option>
+                                    <option value="month" selected>This Month</option>
+                                    <option value="quarter">This Quarter</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Note</label>
+                                <input type="text" id="report-note" placeholder="Optional note">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Save Report</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Reports</h4>
+                    </div>
+                    ${reports.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No reports saved yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Period</th>
+                                        <th>Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-reports-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-reports-message');
+                    const type = document.getElementById('report-type').value;
+                    const period = document.getElementById('report-period').value;
+                    const note = document.getElementById('report-note').value.trim();
+                    const newReport = {
+                        id: this.generateId(),
+                        type,
+                        period,
+                        note,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('reports', [newReport, ...reports]);
+                    this.showToast('Report saved', 'success');
+                    this.renderReportsModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderLoansModule(canvas) {
+        const loans = this.readBranchData('loans', []);
+        const rows = loans.slice(0, 20).map(loan => `
+            <tr>
+                <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
+                <td data-label="Borrower">${loan.borrower}</td>
+                <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
+                <td data-label="Status">${loan.status}</td>
+                <td data-label="Due">${loan.dueDate || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Loans</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Track loans and repayments</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Loan</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-loans-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-loans-body" class="hidden">
+                        <div id="ops-loans-message" class="message-box hidden"></div>
+                        <form id="ops-loans-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Borrower</label>
+                                <input type="text" id="loan-borrower" placeholder="e.g. Client name" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Amount</label>
+                                <input type="number" id="loan-amount" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Interest (%)</label>
+                                <input type="number" id="loan-interest" min="0" step="0.01" placeholder="Optional">
+                            </div>
+                            <div class="input-group">
+                                <label>Status</label>
+                                <select id="loan-status" class="input-field">
+                                    <option value="active" selected>Active</option>
+                                    <option value="cleared">Cleared</option>
+                                    <option value="overdue">Overdue</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Due Date</label>
+                                <input type="date" id="loan-due">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Loan</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Loans</h4>
+                    </div>
+                    ${loans.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No loans recorded yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Borrower</th>
+                                        <th>Amount</th>
+                                        <th>Status</th>
+                                        <th>Due</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-loans-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-loans-message');
+                    const borrower = document.getElementById('loan-borrower').value.trim();
+                    const amount = Number(document.getElementById('loan-amount').value);
+                    const interest = Number(document.getElementById('loan-interest').value || 0);
+                    const status = document.getElementById('loan-status').value;
+                    const dueDate = document.getElementById('loan-due').value;
+
+                    if (!borrower) {
+                        this.showMessage('ops-loans-message', 'Borrower is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(amount) || amount < 0) {
+                        this.showMessage('ops-loans-message', 'Amount must be 0 or more.', 'error');
+                        return;
+                    }
+
+                    const newLoan = {
+                        id: this.generateId(),
+                        borrower,
+                        amount,
+                        interest,
+                        status,
+                        dueDate,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('loans', [newLoan, ...loans]);
+                    this.showToast('Loan added', 'success');
+                    this.renderLoansModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderAssetsModule(canvas) {
+        const assets = this.readBranchData('assets', []);
+        const rows = assets.slice(0, 20).map(asset => `
+            <tr>
+                <td data-label="Name">${asset.name}</td>
+                <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
+                <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
+                <td data-label="Condition">${asset.condition || '-'}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Assets</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Keep track of branch assets</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Asset</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-assets-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-assets-body" class="hidden">
+                        <div id="ops-assets-message" class="message-box hidden"></div>
+                        <form id="ops-assets-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Asset Name</label>
+                                <input type="text" id="asset-name" placeholder="e.g. Delivery Bike" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Value</label>
+                                <input type="number" id="asset-value" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Purchase Date</label>
+                                <input type="date" id="asset-date">
+                            </div>
+                            <div class="input-group">
+                                <label>Condition</label>
+                                <input type="text" id="asset-condition" placeholder="Optional">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Asset</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Assets List</h4>
+                    </div>
+                    ${assets.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No assets recorded yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Value</th>
+                                        <th>Purchased</th>
+                                        <th>Condition</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-assets-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-assets-message');
+                    const name = document.getElementById('asset-name').value.trim();
+                    const value = Number(document.getElementById('asset-value').value);
+                    const purchaseDate = document.getElementById('asset-date').value;
+                    const condition = document.getElementById('asset-condition').value.trim();
+                    if (!name) {
+                        this.showMessage('ops-assets-message', 'Asset name is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(value) || value < 0) {
+                        this.showMessage('ops-assets-message', 'Value must be 0 or more.', 'error');
+                        return;
+                    }
+                    const newAsset = {
+                        id: this.generateId(),
+                        name,
+                        value,
+                        purchaseDate,
+                        condition,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('assets', [newAsset, ...assets]);
+                    this.showToast('Asset added', 'success');
+                    this.renderAssetsModule(canvas);
+                });
+            }
+        }, 0);
+    },
+
+    renderMaintenanceModule(canvas) {
+        const maintenance = this.readBranchData('maintenance', []);
+        const rows = maintenance.slice(0, 20).map(entry => `
+            <tr>
+                <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
+                <td data-label="Title">${entry.title}</td>
+                <td data-label="Asset">${entry.asset || '-'}</td>
+                <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
+                <td data-label="Status">${entry.status}</td>
+            </tr>
+        `).join('');
+
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Maintenance</h3>
+                        <div class="text-muted" style="font-size: 0.85rem;">Log maintenance tasks</div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Maintenance</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-maintenance-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-maintenance-body" class="hidden">
+                        <div id="ops-maintenance-message" class="message-box hidden"></div>
+                        <form id="ops-maintenance-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Task Title</label>
+                                <input type="text" id="maintenance-title" placeholder="e.g. Generator service" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Asset</label>
+                                <input type="text" id="maintenance-asset" placeholder="Optional">
+                            </div>
+                            <div class="input-group">
+                                <label>Cost</label>
+                                <input type="number" id="maintenance-cost" min="0" step="0.01" placeholder="0.00">
+                            </div>
+                            <div class="input-group">
+                                <label>Status</label>
+                                <select id="maintenance-status" class="input-field">
+                                    <option value="scheduled" selected>Scheduled</option>
+                                    <option value="in-progress">In Progress</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Task</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title">Recent Maintenance</h4>
+                    </div>
+                    ${maintenance.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No maintenance tasks yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Title</th>
+                                        <th>Asset</th>
+                                        <th>Cost</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            this.bindCollapseControls(canvas);
+            const form = document.getElementById('ops-maintenance-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.hideMessage('ops-maintenance-message');
+                    const title = document.getElementById('maintenance-title').value.trim();
+                    const asset = document.getElementById('maintenance-asset').value.trim();
+                    const cost = Number(document.getElementById('maintenance-cost').value || 0);
+                    const status = document.getElementById('maintenance-status').value;
+                    if (!title) {
+                        this.showMessage('ops-maintenance-message', 'Task title is required.', 'error');
+                        return;
+                    }
+                    if (Number.isNaN(cost) || cost < 0) {
+                        this.showMessage('ops-maintenance-message', 'Cost must be 0 or more.', 'error');
+                        return;
+                    }
+                    const newTask = {
+                        id: this.generateId(),
+                        title,
+                        asset,
+                        cost,
+                        status,
+                        createdAt: Date.now()
+                    };
+                    this.writeBranchData('maintenance', [newTask, ...maintenance]);
+                    this.showToast('Maintenance added', 'success');
+                    this.renderMaintenanceModule(canvas);
+                });
+            }
+        }, 0);
     },
 
     getOpIcon(id) {
@@ -1837,7 +3775,28 @@ const app = {
             Dashboard.init();
 
             // Detect initial page from URL or default to home
-            const initialPage = new URLSearchParams(window.location.search).get('page') || 'home';
+            const rolePrefix = this.getRolePrefix(profile);
+            const urlPage = new URLSearchParams(window.location.search).get('page');
+            const parsed = this.parseRoleUrlPage(urlPage);
+            let initialPage;
+            let normalizedUrlPage;
+
+            if (parsed) {
+                if (parsed.prefix !== rolePrefix) {
+                    initialPage = 'home';
+                    normalizedUrlPage = this.toRoleUrlPage(rolePrefix, 'home');
+                } else {
+                    initialPage = parsed.page || 'home';
+                    normalizedUrlPage = this.toRoleUrlPage(rolePrefix, initialPage);
+                }
+            } else {
+                initialPage = urlPage || 'home';
+                normalizedUrlPage = this.toRoleUrlPage(rolePrefix, initialPage);
+            }
+
+            if (normalizedUrlPage && normalizedUrlPage !== urlPage) {
+                window.history.replaceState({ page: initialPage }, '', `?page=${normalizedUrlPage}`);
+            }
 
             // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync
             this.loadPage(initialPage, true, true, true);
