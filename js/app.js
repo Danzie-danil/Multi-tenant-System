@@ -948,6 +948,630 @@ const app = {
         return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     },
 
+    mapProductFromDb(row) {
+        return {
+            id: row.id,
+            name: row.name,
+            itemType: row.item_type || 'product',
+            categoryId: row.category_id,
+            costPrice: Number(row.cost_price || 0),
+            sellingPrice: Number(row.selling_price || 0),
+            unit: row.unit || '',
+            stock: row.stock === null || row.stock === undefined ? null : Number(row.stock),
+            lowStock: row.low_stock === null || row.low_stock === undefined ? null : Number(row.low_stock),
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapProductToDb(product) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            name: product.name,
+            item_type: product.itemType,
+            category_id: product.categoryId,
+            cost_price: product.costPrice,
+            selling_price: product.sellingPrice,
+            unit: product.unit || null,
+            stock: product.itemType === 'service' ? null : product.stock,
+            low_stock: product.itemType === 'service' ? null : product.lowStock
+        };
+    },
+
+    async fetchBranchProducts() {
+        const profile = this.state.currentProfile;
+        if (!profile?.branch_id && !profile?.id) return this.readBranchData('products', []);
+
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            const mapped = (data || []).map(row => this.mapProductFromDb(row));
+            this.writeBranchData('products', mapped);
+            return mapped;
+        } catch (error) {
+            console.error('Failed to fetch products:', error);
+            return this.readBranchData('products', []);
+        }
+    },
+
+    async createBranchProduct(product) {
+        const payload = this.mapProductToDb(product);
+        const { data, error } = await supabase
+            .from('products')
+            .insert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        const mapped = this.mapProductFromDb(data);
+        const current = this.readBranchData('products', []);
+        this.writeBranchData('products', [mapped, ...current]);
+        return mapped;
+    },
+
+    async upsertBranchProduct(product) {
+        const payload = { ...this.mapProductToDb(product), id: product.id };
+        const { data, error } = await supabase
+            .from('products')
+            .upsert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        const mapped = this.mapProductFromDb(data);
+        const current = this.readBranchData('products', []);
+        const updated = current.map(p => p.id === mapped.id ? mapped : p);
+        if (!updated.find(p => p.id === mapped.id)) updated.unshift(mapped);
+        this.writeBranchData('products', updated);
+        return mapped;
+    },
+
+    async deleteBranchProduct(productId) {
+        const { error } = await supabase
+            .from('products')
+            .delete()
+            .eq('id', productId);
+        if (error) throw error;
+        const current = this.readBranchData('products', []);
+        this.writeBranchData('products', current.filter(p => p.id !== productId));
+        return true;
+    },
+
+    async fetchBranchRows(table, storageKey, mapper) {
+        try {
+            const { data, error } = await supabase
+                .from(table)
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+            const mapped = mapper ? (data || []).map(row => mapper(row)) : (data || []);
+            this.writeBranchData(storageKey, mapped);
+            return mapped;
+        } catch (error) {
+            console.error(`Failed to fetch ${table}:`, error);
+            return this.readBranchData(storageKey, []);
+        }
+    },
+
+    async createBranchRow(table, storageKey, payload, mapper) {
+        const { data, error } = await supabase
+            .from(table)
+            .insert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        const mapped = mapper ? mapper(data) : data;
+        const current = this.readBranchData(storageKey, []);
+        this.writeBranchData(storageKey, [mapped, ...current]);
+        return mapped;
+    },
+
+    async upsertBranchRow(table, storageKey, payload, mapper) {
+        const { data, error } = await supabase
+            .from(table)
+            .upsert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        const mapped = mapper ? mapper(data) : data;
+        const current = this.readBranchData(storageKey, []);
+        const updated = current.map(item => item.id === mapped.id ? mapped : item);
+        if (!updated.find(item => item.id === mapped.id)) updated.unshift(mapped);
+        this.writeBranchData(storageKey, updated);
+        return mapped;
+    },
+
+    async deleteBranchRow(table, storageKey, id) {
+        const { error } = await supabase
+            .from(table)
+            .delete()
+            .eq('id', id);
+        if (error) throw error;
+        const current = this.readBranchData(storageKey, []);
+        this.writeBranchData(storageKey, current.filter(item => item.id !== id));
+        return true;
+    },
+
+    mapCategoryFromDb(row) {
+        return {
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapCategoryToDb(category) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            name: category.name,
+            description: category.description || null
+        };
+    },
+
+    fetchBranchCategories() {
+        return this.fetchBranchRows('categories', 'categories', (row) => this.mapCategoryFromDb(row));
+    },
+
+    createBranchCategory(category) {
+        return this.createBranchRow('categories', 'categories', this.mapCategoryToDb(category), (row) => this.mapCategoryFromDb(row));
+    },
+
+    upsertBranchCategory(category) {
+        const payload = { ...this.mapCategoryToDb(category), id: category.id };
+        return this.upsertBranchRow('categories', 'categories', payload, (row) => this.mapCategoryFromDb(row));
+    },
+
+    deleteBranchCategory(categoryId) {
+        return this.deleteBranchRow('categories', 'categories', categoryId);
+    },
+
+    mapCustomerFromDb(row) {
+        return {
+            id: row.id,
+            name: row.name,
+            phone: row.phone || '',
+            email: row.email || '',
+            address: row.address || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapCustomerToDb(customer) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            name: customer.name,
+            phone: customer.phone || null,
+            email: customer.email || null,
+            address: customer.address || null
+        };
+    },
+
+    fetchBranchCustomers() {
+        return this.fetchBranchRows('customers', 'customers', (row) => this.mapCustomerFromDb(row));
+    },
+
+    createBranchCustomer(customer) {
+        return this.createBranchRow('customers', 'customers', this.mapCustomerToDb(customer), (row) => this.mapCustomerFromDb(row));
+    },
+
+    upsertBranchCustomer(customer) {
+        const payload = { ...this.mapCustomerToDb(customer), id: customer.id };
+        return this.upsertBranchRow('customers', 'customers', payload, (row) => this.mapCustomerFromDb(row));
+    },
+
+    deleteBranchCustomer(customerId) {
+        return this.deleteBranchRow('customers', 'customers', customerId);
+    },
+
+    mapSaleFromDb(row) {
+        return {
+            id: row.id,
+            productId: row.product_id,
+            productName: row.product_name || '',
+            categoryId: row.category_id,
+            categoryName: row.category_name || '',
+            itemType: row.item_type || 'product',
+            price: Number(row.price || 0),
+            quantity: Number(row.quantity || 0),
+            total: Number(row.total || 0),
+            customerId: row.customer_id,
+            customerName: row.customer_name || '',
+            note: row.note || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapSaleToDb(sale) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            product_id: sale.productId || null,
+            product_name: sale.productName || null,
+            category_id: sale.categoryId || null,
+            category_name: sale.categoryName || null,
+            item_type: sale.itemType || 'product',
+            price: sale.price || 0,
+            quantity: sale.quantity || 0,
+            total: sale.total || 0,
+            customer_id: sale.customerId || null,
+            customer_name: sale.customerName || null,
+            note: sale.note || null
+        };
+    },
+
+    fetchBranchSales() {
+        return this.fetchBranchRows('sales', 'sales', (row) => this.mapSaleFromDb(row));
+    },
+
+    createBranchSale(sale) {
+        return this.createBranchRow('sales', 'sales', this.mapSaleToDb(sale), (row) => this.mapSaleFromDb(row));
+    },
+
+    upsertBranchSale(sale) {
+        const payload = { ...this.mapSaleToDb(sale), id: sale.id };
+        return this.upsertBranchRow('sales', 'sales', payload, (row) => this.mapSaleFromDb(row));
+    },
+
+    deleteBranchSale(saleId) {
+        return this.deleteBranchRow('sales', 'sales', saleId);
+    },
+
+    mapExpenseFromDb(row) {
+        return {
+            id: row.id,
+            title: row.title,
+            category: row.category || '',
+            amount: Number(row.amount || 0),
+            note: row.note || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapExpenseToDb(expense) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            title: expense.title,
+            category: expense.category || null,
+            amount: expense.amount || 0,
+            note: expense.note || null
+        };
+    },
+
+    fetchBranchExpenses() {
+        return this.fetchBranchRows('expenses', 'expenses', (row) => this.mapExpenseFromDb(row));
+    },
+
+    createBranchExpense(expense) {
+        return this.createBranchRow('expenses', 'expenses', this.mapExpenseToDb(expense), (row) => this.mapExpenseFromDb(row));
+    },
+
+    upsertBranchExpense(expense) {
+        const payload = { ...this.mapExpenseToDb(expense), id: expense.id };
+        return this.upsertBranchRow('expenses', 'expenses', payload, (row) => this.mapExpenseFromDb(row));
+    },
+
+    deleteBranchExpense(expenseId) {
+        return this.deleteBranchRow('expenses', 'expenses', expenseId);
+    },
+
+    mapIncomeFromDb(row) {
+        return {
+            id: row.id,
+            title: row.title,
+            source: row.source || '',
+            amount: Number(row.amount || 0),
+            note: row.note || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapIncomeToDb(entry) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            title: entry.title,
+            source: entry.source || null,
+            amount: entry.amount || 0,
+            note: entry.note || null
+        };
+    },
+
+    fetchBranchIncome() {
+        return this.fetchBranchRows('income', 'income', (row) => this.mapIncomeFromDb(row));
+    },
+
+    createBranchIncome(entry) {
+        return this.createBranchRow('income', 'income', this.mapIncomeToDb(entry), (row) => this.mapIncomeFromDb(row));
+    },
+
+    upsertBranchIncome(entry) {
+        const payload = { ...this.mapIncomeToDb(entry), id: entry.id };
+        return this.upsertBranchRow('income', 'income', payload, (row) => this.mapIncomeFromDb(row));
+    },
+
+    deleteBranchIncome(entryId) {
+        return this.deleteBranchRow('income', 'income', entryId);
+    },
+
+    mapNoteFromDb(row) {
+        return {
+            id: row.id,
+            title: row.title,
+            details: row.details || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapNoteToDb(note) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            title: note.title,
+            details: note.details || null
+        };
+    },
+
+    fetchBranchNotes() {
+        return this.fetchBranchRows('notes', 'notes', (row) => this.mapNoteFromDb(row));
+    },
+
+    createBranchNote(note) {
+        return this.createBranchRow('notes', 'notes', this.mapNoteToDb(note), (row) => this.mapNoteFromDb(row));
+    },
+
+    upsertBranchNote(note) {
+        const payload = { ...this.mapNoteToDb(note), id: note.id };
+        return this.upsertBranchRow('notes', 'notes', payload, (row) => this.mapNoteFromDb(row));
+    },
+
+    deleteBranchNote(noteId) {
+        return this.deleteBranchRow('notes', 'notes', noteId);
+    },
+
+    mapInventoryFromDb(row) {
+        return {
+            id: row.id,
+            productId: row.product_id,
+            type: row.type,
+            quantity: Number(row.quantity || 0),
+            note: row.note || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapInventoryToDb(entry) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            product_id: entry.productId || null,
+            type: entry.type,
+            quantity: entry.quantity || 0,
+            note: entry.note || null
+        };
+    },
+
+    fetchBranchInventory() {
+        return this.fetchBranchRows('inventory_movements', 'inventory', (row) => this.mapInventoryFromDb(row));
+    },
+
+    createBranchInventory(entry) {
+        return this.createBranchRow('inventory_movements', 'inventory', this.mapInventoryToDb(entry), (row) => this.mapInventoryFromDb(row));
+    },
+
+    upsertBranchInventory(entry) {
+        const payload = { ...this.mapInventoryToDb(entry), id: entry.id };
+        return this.upsertBranchRow('inventory_movements', 'inventory', payload, (row) => this.mapInventoryFromDb(row));
+    },
+
+    deleteBranchInventory(entryId) {
+        return this.deleteBranchRow('inventory_movements', 'inventory', entryId);
+    },
+
+    mapInvoiceFromDb(row) {
+        return {
+            id: row.id,
+            invoiceNumber: row.invoice_number,
+            customerId: row.customer_id,
+            customerName: row.customer_name || '',
+            amount: Number(row.amount || 0),
+            status: row.status || 'unpaid',
+            dueDate: row.due_date || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapInvoiceToDb(invoice) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            invoice_number: invoice.invoiceNumber,
+            customer_id: invoice.customerId || null,
+            customer_name: invoice.customerName || null,
+            amount: invoice.amount || 0,
+            status: invoice.status || 'unpaid',
+            due_date: invoice.dueDate || null
+        };
+    },
+
+    fetchBranchInvoices() {
+        return this.fetchBranchRows('invoices', 'invoices', (row) => this.mapInvoiceFromDb(row));
+    },
+
+    createBranchInvoice(invoice) {
+        return this.createBranchRow('invoices', 'invoices', this.mapInvoiceToDb(invoice), (row) => this.mapInvoiceFromDb(row));
+    },
+
+    upsertBranchInvoice(invoice) {
+        const payload = { ...this.mapInvoiceToDb(invoice), id: invoice.id };
+        return this.upsertBranchRow('invoices', 'invoices', payload, (row) => this.mapInvoiceFromDb(row));
+    },
+
+    deleteBranchInvoice(invoiceId) {
+        return this.deleteBranchRow('invoices', 'invoices', invoiceId);
+    },
+
+    mapReportFromDb(row) {
+        return {
+            id: row.id,
+            type: row.type,
+            period: row.period,
+            note: row.note || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapReportToDb(report) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            type: report.type,
+            period: report.period,
+            note: report.note || null
+        };
+    },
+
+    fetchBranchReports() {
+        return this.fetchBranchRows('reports', 'reports', (row) => this.mapReportFromDb(row));
+    },
+
+    createBranchReport(report) {
+        return this.createBranchRow('reports', 'reports', this.mapReportToDb(report), (row) => this.mapReportFromDb(row));
+    },
+
+    upsertBranchReport(report) {
+        const payload = { ...this.mapReportToDb(report), id: report.id };
+        return this.upsertBranchRow('reports', 'reports', payload, (row) => this.mapReportFromDb(row));
+    },
+
+    deleteBranchReport(reportId) {
+        return this.deleteBranchRow('reports', 'reports', reportId);
+    },
+
+    mapLoanFromDb(row) {
+        return {
+            id: row.id,
+            borrower: row.borrower,
+            amount: Number(row.amount || 0),
+            interest: Number(row.interest || 0),
+            status: row.status || 'active',
+            dueDate: row.due_date || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapLoanToDb(loan) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            borrower: loan.borrower,
+            amount: loan.amount || 0,
+            interest: loan.interest || 0,
+            status: loan.status || 'active',
+            due_date: loan.dueDate || null
+        };
+    },
+
+    fetchBranchLoans() {
+        return this.fetchBranchRows('loans', 'loans', (row) => this.mapLoanFromDb(row));
+    },
+
+    createBranchLoan(loan) {
+        return this.createBranchRow('loans', 'loans', this.mapLoanToDb(loan), (row) => this.mapLoanFromDb(row));
+    },
+
+    upsertBranchLoan(loan) {
+        const payload = { ...this.mapLoanToDb(loan), id: loan.id };
+        return this.upsertBranchRow('loans', 'loans', payload, (row) => this.mapLoanFromDb(row));
+    },
+
+    deleteBranchLoan(loanId) {
+        return this.deleteBranchRow('loans', 'loans', loanId);
+    },
+
+    mapAssetFromDb(row) {
+        return {
+            id: row.id,
+            name: row.name,
+            value: Number(row.value || 0),
+            purchaseDate: row.purchase_date || '',
+            condition: row.condition || '',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapAssetToDb(asset) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            name: asset.name,
+            value: asset.value || 0,
+            purchase_date: asset.purchaseDate || null,
+            condition: asset.condition || null
+        };
+    },
+
+    fetchBranchAssets() {
+        return this.fetchBranchRows('assets', 'assets', (row) => this.mapAssetFromDb(row));
+    },
+
+    createBranchAsset(asset) {
+        return this.createBranchRow('assets', 'assets', this.mapAssetToDb(asset), (row) => this.mapAssetFromDb(row));
+    },
+
+    upsertBranchAsset(asset) {
+        const payload = { ...this.mapAssetToDb(asset), id: asset.id };
+        return this.upsertBranchRow('assets', 'assets', payload, (row) => this.mapAssetFromDb(row));
+    },
+
+    deleteBranchAsset(assetId) {
+        return this.deleteBranchRow('assets', 'assets', assetId);
+    },
+
+    mapMaintenanceFromDb(row) {
+        return {
+            id: row.id,
+            title: row.title,
+            asset: row.asset || '',
+            cost: Number(row.cost || 0),
+            status: row.status || 'scheduled',
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+        };
+    },
+
+    mapMaintenanceToDb(task) {
+        const profile = this.state.currentProfile;
+        return {
+            branch_id: profile?.branch_id || profile?.id,
+            title: task.title,
+            asset: task.asset || null,
+            cost: task.cost || 0,
+            status: task.status || 'scheduled'
+        };
+    },
+
+    fetchBranchMaintenance() {
+        return this.fetchBranchRows('maintenance', 'maintenance', (row) => this.mapMaintenanceFromDb(row));
+    },
+
+    createBranchMaintenance(task) {
+        return this.createBranchRow('maintenance', 'maintenance', this.mapMaintenanceToDb(task), (row) => this.mapMaintenanceFromDb(row));
+    },
+
+    upsertBranchMaintenance(task) {
+        const payload = { ...this.mapMaintenanceToDb(task), id: task.id };
+        return this.upsertBranchRow('maintenance', 'maintenance', payload, (row) => this.mapMaintenanceFromDb(row));
+    },
+
+    deleteBranchMaintenance(taskId) {
+        return this.deleteBranchRow('maintenance', 'maintenance', taskId);
+    },
+
     bindCollapseControls(container = document) {
         container.querySelectorAll('[data-collapse-target]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1331,9 +1955,12 @@ const app = {
         canvas.innerHTML = content;
     },
 
-    renderCategoriesModule(canvas) {
-        const categories = this.readBranchData('categories', []);
-        const products = this.readBranchData('products', []);
+    async renderCategoriesModule(canvas) {
+        canvas.innerHTML = this.getLoaderHTML();
+        const [categories, products] = await Promise.all([
+            this.fetchBranchCategories(),
+            this.fetchBranchProducts()
+        ]);
         const rows = categories.map(cat => {
             const count = products.filter(p => p.categoryId === cat.id).length;
             return `
@@ -1409,7 +2036,7 @@ const app = {
             this.bindCollapseControls(canvas);
             const form = document.getElementById('ops-category-form');
             if (form) {
-                form.addEventListener('submit', (e) => {
+                form.addEventListener('submit', async (e) => {
                     e.preventDefault();
                     this.hideMessage('ops-categories-message');
                     const name = document.getElementById('category-name').value.trim();
@@ -1423,331 +2050,364 @@ const app = {
                         this.showMessage('ops-categories-message', 'Category already exists.', 'error');
                         return;
                     }
-                    const newCategory = {
-                        id: this.generateId(),
-                        name,
-                        description,
-                        createdAt: Date.now()
-                    };
-                    const updated = [newCategory, ...categories];
-                    this.writeBranchData('categories', updated);
-                    this.showToast('Category added', 'success');
-                    this.renderCategoriesModule(canvas);
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.textContent = 'Saving...';
+                        submitBtn.disabled = true;
+                    }
+                    try {
+                        await this.createBranchCategory({ name, description });
+                        this.showToast('Category added', 'success');
+                        this.renderCategoriesModule(canvas);
+                    } catch (error) {
+                        console.error('Failed to save category:', error);
+                        this.showMessage('ops-categories-message', error.message || 'Failed to save category.', 'error');
+                    } finally {
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Add Category';
+                            submitBtn.disabled = false;
+                        }
+                    }
                 });
             }
 
             document.querySelectorAll('[data-category-delete]').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', async () => {
                     const id = btn.getAttribute('data-category-delete');
                     const used = products.some(p => p.categoryId === id);
                     if (used) {
                         this.showToast('Remove products in this category first', 'error');
                         return;
                     }
-                    const updated = categories.filter(c => c.id !== id);
-                    this.writeBranchData('categories', updated);
-                    this.showToast('Category removed', 'info');
-                    this.renderCategoriesModule(canvas);
+                    try {
+                        await this.deleteBranchCategory(id);
+                        this.showToast('Category removed', 'info');
+                        this.renderCategoriesModule(canvas);
+                    } catch (error) {
+                        console.error('Failed to delete category:', error);
+                        this.showToast('Failed to delete category', 'error');
+                    }
                 });
             });
         }, 0);
     },
 
     renderProductsModule(canvas) {
-        const categories = this.readBranchData('categories', []);
-        const products = this.readBranchData('products', []);
-        const options = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
-        const rows = products.map(product => {
-            const category = categories.find(c => c.id === product.categoryId);
-            const itemType = product.itemType || 'product';
-            const stockValue = itemType === 'service' ? '-' : (product.stock ?? 0);
-            const lowStockValue = itemType === 'service' ? '-' : (product.lowStock ?? '-');
-            return `
-                <tr>
-                    <td data-label="Product"><strong>${product.name}</strong></td>
-                    <td data-label="Category">${category ? category.name : '-'}</td>
-                    <td data-label="Type">${itemType}</td>
-                    <td data-label="Cost">${this.formatCurrency(product.costPrice || 0)}</td>
-                    <td data-label="Selling">${this.formatCurrency(product.sellingPrice || 0)}</td>
-                    <td data-label="Stock">${stockValue}</td>
-                    <td data-label="Low Stock">${lowStockValue}</td>
-                    <td data-label="Actions" style="text-align: right;">
-                        <button class="btn-ghost" data-product-delete="${product.id}">Delete</button>
-                    </td>
-                </tr>
+        canvas.innerHTML = this.getLoaderHTML();
+
+        Promise.all([this.fetchBranchCategories(), this.fetchBranchProducts()]).then(([categories, products]) => {
+            const options = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+            const rows = products.map(product => {
+                const category = categories.find(c => c.id === product.categoryId);
+                const itemType = product.itemType || 'product';
+                const stockValue = itemType === 'service' ? '-' : (product.stock ?? 0);
+                const lowStockValue = itemType === 'service' ? '-' : (product.lowStock ?? '-');
+                return `
+                    <tr>
+                        <td data-label="Product"><strong>${product.name}</strong></td>
+                        <td data-label="Category">${category ? category.name : '-'}</td>
+                        <td data-label="Type">${itemType}</td>
+                        <td data-label="Cost">${this.formatCurrency(product.costPrice || 0)}</td>
+                        <td data-label="Selling">${this.formatCurrency(product.sellingPrice || 0)}</td>
+                        <td data-label="Stock">${stockValue}</td>
+                        <td data-label="Low Stock">${lowStockValue}</td>
+                        <td data-label="Actions" style="text-align: right;">
+                            <button class="btn-ghost" data-product-delete="${product.id}">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            canvas.innerHTML = `
+                <div class="page-enter">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div>
+                            <h3>Products</h3>
+                            <div class="text-muted" style="font-size: 0.85rem;">Create and manage your product catalog</div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4 class="card-title">New Product</h4>
+                            <button type="button" class="btn-ghost" data-collapse-target="ops-product-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        </div>
+                        <div id="ops-product-body" class="hidden">
+                            <div id="ops-products-message" class="message-box hidden"></div>
+                            <form id="ops-product-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Product Name</label>
+                                <input type="text" id="product-name" placeholder="e.g. Cola 500ml" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Item Type</label>
+                                <select id="product-type" class="input-field">
+                                    <option value="product" selected>Product</option>
+                                    <option value="service">Service</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Category</label>
+                                <select id="product-category" class="input-field">
+                                    <option value="" disabled selected>${categories.length === 0 ? 'Add or create category' : 'Select category'}</option>
+                                    ${options}
+                                    <option value="__new__">+ Create new category</option>
+                                </select>
+                            </div>
+                            <div id="product-new-category" class="hidden" style="display: grid; gap: 1rem;">
+                                <div class="input-group">
+                                    <label>New Category Name</label>
+                                    <input type="text" id="product-new-category-name" placeholder="e.g. Beverages">
+                                </div>
+                                <div class="input-group">
+                                    <label>New Category Description</label>
+                                    <input type="text" id="product-new-category-desc" placeholder="Optional short description">
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label>Cost Price</label>
+                                <input type="number" id="product-cost" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Selling Price</label>
+                                <input type="number" id="product-selling" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Unit</label>
+                                <input type="text" id="product-unit" placeholder="e.g. bottle, pack">
+                            </div>
+                            <div class="input-group" id="product-stock-group">
+                                <label>Opening Stock</label>
+                                <input type="number" id="product-stock" min="0" step="1" placeholder="0">
+                            </div>
+                            <div class="input-group" id="product-low-group">
+                                <label>Low Stock Alert</label>
+                                <input type="number" id="product-low" min="0" step="1" placeholder="5" value="5">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Product</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h4 class="card-title">Product List</h4>
+                        </div>
+                        ${products.length === 0 ? `
+                            <div class="text-muted" style="padding: 1rem;">No products yet. Add your first product above.</div>
+                        ` : `
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Category</th>
+                                            <th>Type</th>
+                                            <th>Cost</th>
+                                            <th>Selling</th>
+                                            <th>Stock</th>
+                                            <th>Low Stock</th>
+                                            <th style="text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rows}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `}
+                    </div>
+                </div>
             `;
-        }).join('');
 
-        canvas.innerHTML = `
-            <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Products</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Create and manage your product catalog</div>
-                    </div>
-                </div>
-
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 class="card-title">New Product</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-product-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
-                    </div>
-                    <div id="ops-product-body" class="hidden">
-                        <div id="ops-products-message" class="message-box hidden"></div>
-                        <form id="ops-product-form" class="auth-form" style="max-width: 100%;">
-                        <div class="input-group">
-                            <label>Product Name</label>
-                            <input type="text" id="product-name" placeholder="e.g. Cola 500ml" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Item Type</label>
-                            <select id="product-type" class="input-field">
-                                <option value="product" selected>Product</option>
-                                <option value="service">Service</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label>Category</label>
-                            <select id="product-category" class="input-field">
-                                <option value="" disabled selected>${categories.length === 0 ? 'Add or create category' : 'Select category'}</option>
-                                ${options}
-                                <option value="__new__">+ Create new category</option>
-                            </select>
-                        </div>
-                        <div id="product-new-category" class="hidden" style="display: grid; gap: 1rem;">
-                            <div class="input-group">
-                                <label>New Category Name</label>
-                                <input type="text" id="product-new-category-name" placeholder="e.g. Beverages">
-                            </div>
-                            <div class="input-group">
-                                <label>New Category Description</label>
-                                <input type="text" id="product-new-category-desc" placeholder="Optional short description">
-                            </div>
-                        </div>
-                        <div class="input-group">
-                            <label>Cost Price</label>
-                            <input type="number" id="product-cost" min="0" step="0.01" placeholder="0.00" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Selling Price</label>
-                            <input type="number" id="product-selling" min="0" step="0.01" placeholder="0.00" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Unit</label>
-                            <input type="text" id="product-unit" placeholder="e.g. bottle, pack">
-                        </div>
-                        <div class="input-group" id="product-stock-group">
-                            <label>Opening Stock</label>
-                            <input type="number" id="product-stock" min="0" step="1" placeholder="0">
-                        </div>
-                        <div class="input-group" id="product-low-group">
-                            <label>Low Stock Alert</label>
-                            <input type="number" id="product-low" min="0" step="1" placeholder="5" value="5">
-                        </div>
-                        <button type="submit" class="btn-primary" style="width: auto;">Add Product</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h4 class="card-title">Product List</h4>
-                    </div>
-                    ${products.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No products yet. Add your first product above.</div>
-                    ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Category</th>
-                                        <th>Type</th>
-                                        <th>Cost</th>
-                                        <th>Selling</th>
-                                        <th>Stock</th>
-                                        <th>Low Stock</th>
-                                        <th style="text-align: right;">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
-                        </div>
-                    `}
-                </div>
-            </div>
-        `;
-
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const typeSelect = document.getElementById('product-type');
-            const categorySelect = document.getElementById('product-category');
-            const newCategoryWrap = document.getElementById('product-new-category');
-            const stockGroup = document.getElementById('product-stock-group');
-            const lowGroup = document.getElementById('product-low-group');
-            const applyTypeState = () => {
-                const typeValue = typeSelect ? typeSelect.value : 'product';
-                const isService = typeValue === 'service';
-                if (stockGroup) stockGroup.style.display = isService ? 'none' : '';
-                if (lowGroup) lowGroup.style.display = isService ? 'none' : '';
-            };
-            if (typeSelect) {
-                applyTypeState();
-                typeSelect.addEventListener('change', applyTypeState);
-            }
-
-            const applyCategoryState = () => {
-                if (!newCategoryWrap || !categorySelect) return;
-                if (categorySelect.value === '__new__') {
-                    newCategoryWrap.classList.remove('hidden');
-                } else {
-                    newCategoryWrap.classList.add('hidden');
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const typeSelect = document.getElementById('product-type');
+                const categorySelect = document.getElementById('product-category');
+                const newCategoryWrap = document.getElementById('product-new-category');
+                const stockGroup = document.getElementById('product-stock-group');
+                const lowGroup = document.getElementById('product-low-group');
+                const applyTypeState = () => {
+                    const typeValue = typeSelect ? typeSelect.value : 'product';
+                    const isService = typeValue === 'service';
+                    if (stockGroup) stockGroup.style.display = isService ? 'none' : '';
+                    if (lowGroup) lowGroup.style.display = isService ? 'none' : '';
+                };
+                if (typeSelect) {
+                    applyTypeState();
+                    typeSelect.addEventListener('change', applyTypeState);
                 }
-            };
-            if (categorySelect) {
-                applyCategoryState();
-                categorySelect.addEventListener('change', applyCategoryState);
-            }
 
-            const form = document.getElementById('ops-product-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-products-message');
-                    const name = document.getElementById('product-name').value.trim();
-                    const categoryId = document.getElementById('product-category').value;
-                    const itemType = document.getElementById('product-type').value;
-                    const costPrice = Number(document.getElementById('product-cost').value);
-                    const sellingPrice = Number(document.getElementById('product-selling').value);
-                    const unit = document.getElementById('product-unit').value.trim();
-                    const stockValue = document.getElementById('product-stock').value;
-                    const lowValue = document.getElementById('product-low').value;
-                    const stock = itemType === 'service' ? null : Number(stockValue || 0);
-                    const lowStock = itemType === 'service' ? null : Number(lowValue || 5);
-
-                    if (!name) {
-                        this.showMessage('ops-products-message', 'Product name is required.', 'error');
-                        return;
+                const applyCategoryState = () => {
+                    if (!newCategoryWrap || !categorySelect) return;
+                    if (categorySelect.value === '__new__') {
+                        newCategoryWrap.classList.remove('hidden');
+                    } else {
+                        newCategoryWrap.classList.add('hidden');
                     }
-                    let finalCategoryId = categoryId;
-                    let updatedCategories = categories;
+                };
+                if (categorySelect) {
+                    applyCategoryState();
+                    categorySelect.addEventListener('change', applyCategoryState);
+                }
 
-                    if (!categoryId) {
-                        this.showMessage('ops-products-message', 'Select a category first.', 'error');
-                        return;
-                    }
+                const form = document.getElementById('ops-product-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-products-message');
+                        const name = document.getElementById('product-name').value.trim();
+                        const categoryId = document.getElementById('product-category').value;
+                        const itemType = document.getElementById('product-type').value;
+                        const costPrice = Number(document.getElementById('product-cost').value);
+                        const sellingPrice = Number(document.getElementById('product-selling').value);
+                        const unit = document.getElementById('product-unit').value.trim();
+                        const stockValue = document.getElementById('product-stock').value;
+                        const lowValue = document.getElementById('product-low').value;
+                        const stock = itemType === 'service' ? null : Number(stockValue || 0);
+                        const lowStock = itemType === 'service' ? null : Number(lowValue || 5);
 
-                    if (categoryId === '__new__') {
-                        const newCategoryName = document.getElementById('product-new-category-name').value.trim();
-                        const newCategoryDesc = document.getElementById('product-new-category-desc').value.trim();
-                        if (!newCategoryName) {
-                            this.showMessage('ops-products-message', 'Enter a new category name.', 'error');
+                        if (!name) {
+                            this.showMessage('ops-products-message', 'Product name is required.', 'error');
                             return;
                         }
-                        const exists = categories.some(c => c.name.toLowerCase() === newCategoryName.toLowerCase());
-                        if (exists) {
-                            this.showMessage('ops-products-message', 'Category already exists.', 'error');
-                            return;
-                        }
-                        const newCategory = {
-                            id: this.generateId(),
-                            name: newCategoryName,
-                            description: newCategoryDesc,
-                            createdAt: Date.now()
-                        };
-                        updatedCategories = [newCategory, ...categories];
-                        this.writeBranchData('categories', updatedCategories);
-                        finalCategoryId = newCategory.id;
-                    }
-                    if (!itemType) {
-                        this.showMessage('ops-products-message', 'Select an item type.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(costPrice) || costPrice < 0) {
-                        this.showMessage('ops-products-message', 'Cost price must be 0 or more.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
-                        this.showMessage('ops-products-message', 'Selling price must be 0 or more.', 'error');
-                        return;
-                    }
-                    if (itemType === 'product') {
-                        if (Number.isNaN(stock) || stock < 0) {
-                            this.showMessage('ops-products-message', 'Opening stock must be 0 or more.', 'error');
-                            return;
-                        }
-                        if (Number.isNaN(lowStock) || lowStock < 0) {
-                            this.showMessage('ops-products-message', 'Low stock must be 0 or more.', 'error');
-                            return;
-                        }
-                    }
+                        let finalCategoryId = categoryId;
 
-                    const newProduct = {
-                        id: this.generateId(),
-                        name,
-                        itemType,
-                        categoryId: finalCategoryId,
-                        costPrice,
-                        sellingPrice,
-                        unit,
-                        stock,
-                        lowStock: itemType === 'product' ? lowStock : null,
-                        createdAt: Date.now()
-                    };
-                    const updated = [newProduct, ...products];
-                    this.writeBranchData('products', updated);
-                    this.showToast('Product added', 'success');
-                    this.renderProductsModule(canvas);
+                        if (!categoryId) {
+                            this.showMessage('ops-products-message', 'Select a category first.', 'error');
+                            return;
+                        }
+
+                        if (categoryId === '__new__') {
+                            const newCategoryName = document.getElementById('product-new-category-name').value.trim();
+                            const newCategoryDesc = document.getElementById('product-new-category-desc').value.trim();
+                            if (!newCategoryName) {
+                                this.showMessage('ops-products-message', 'Enter a new category name.', 'error');
+                                return;
+                            }
+                            const exists = categories.some(c => c.name.toLowerCase() === newCategoryName.toLowerCase());
+                            if (exists) {
+                                this.showMessage('ops-products-message', 'Category already exists.', 'error');
+                                return;
+                            }
+                            try {
+                                const createdCategory = await this.createBranchCategory({ name: newCategoryName, description: newCategoryDesc });
+                                finalCategoryId = createdCategory.id;
+                            } catch (error) {
+                                console.error('Failed to save category:', error);
+                                this.showMessage('ops-products-message', error.message || 'Failed to save category.', 'error');
+                                return;
+                            }
+                        }
+                        if (!itemType) {
+                            this.showMessage('ops-products-message', 'Select an item type.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(costPrice) || costPrice < 0) {
+                            this.showMessage('ops-products-message', 'Cost price must be 0 or more.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
+                            this.showMessage('ops-products-message', 'Selling price must be 0 or more.', 'error');
+                            return;
+                        }
+                        if (itemType === 'product') {
+                            if (Number.isNaN(stock) || stock < 0) {
+                                this.showMessage('ops-products-message', 'Opening stock must be 0 or more.', 'error');
+                                return;
+                            }
+                            if (Number.isNaN(lowStock) || lowStock < 0) {
+                                this.showMessage('ops-products-message', 'Low stock must be 0 or more.', 'error');
+                                return;
+                            }
+                        }
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            const newProduct = {
+                                name,
+                                itemType,
+                                categoryId: finalCategoryId,
+                                costPrice,
+                                sellingPrice,
+                                unit,
+                                stock,
+                                lowStock: itemType === 'product' ? lowStock : null
+                            };
+                            await this.createBranchProduct(newProduct);
+                            this.showToast('Product added', 'success');
+                            this.renderProductsModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save product:', error);
+                            this.showMessage('ops-products-message', error.message || 'Failed to save product.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Product';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+
+                document.querySelectorAll('[data-product-delete]').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-product-delete');
+                        try {
+                            await this.deleteBranchProduct(id);
+                            const inventory = this.readBranchData('inventory', []);
+                            const updatedInventory = inventory.filter(i => i.productId !== id);
+                            this.writeBranchData('inventory', updatedInventory);
+                            this.showToast('Product removed', 'info');
+                            this.renderProductsModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to delete product:', error);
+                            this.showToast('Failed to delete product', 'error');
+                        }
+                    });
                 });
-            }
-
-            document.querySelectorAll('[data-product-delete]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.getAttribute('data-product-delete');
-                    const updated = products.filter(p => p.id !== id);
-                    this.writeBranchData('products', updated);
-                    const inventory = this.readBranchData('inventory', []);
-                    const updatedInventory = inventory.filter(i => i.productId !== id);
-                    this.writeBranchData('inventory', updatedInventory);
-                    this.showToast('Product removed', 'info');
-                    this.renderProductsModule(canvas);
-                });
-            });
-        }, 0);
+            }, 0);
+        });
     },
 
     renderInventoryModule(canvas) {
-        const products = this.readBranchData('products', []);
-        const inventory = this.readBranchData('inventory', []);
-        const categories = this.readBranchData('categories', []);
-        const stockProducts = products.filter(p => (p.itemType || 'product') === 'product');
-        const options = stockProducts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-        const rows = inventory.slice(0, 20).map(item => {
-            const product = products.find(p => p.id === item.productId);
-            const qty = item.type === 'in' ? `+${item.quantity}` : `-${item.quantity}`;
-            return `
+        canvas.innerHTML = this.getLoaderHTML();
+
+        Promise.all([
+            this.fetchBranchProducts(),
+            this.fetchBranchCategories(),
+            this.fetchBranchInventory()
+        ]).then(([products, categories, inventory]) => {
+            const stockProducts = products.filter(p => (p.itemType || 'product') === 'product');
+            const options = stockProducts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+            const rows = inventory.slice(0, 20).map(item => {
+                const product = products.find(p => p.id === item.productId);
+                const qty = item.type === 'in' ? `+${item.quantity}` : `-${item.quantity}`;
+                return `
+                    <tr>
+                        <td data-label="Date">${new Date(item.createdAt).toLocaleString()}</td>
+                        <td data-label="Product">${product ? product.name : '-'}</td>
+                        <td data-label="Type">${item.type === 'in' ? 'Stock In' : 'Stock Out'}</td>
+                        <td data-label="Qty">${qty}</td>
+                        <td data-label="Note">${item.note || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const stockRows = stockProducts.map(product => `
                 <tr>
-                    <td data-label="Date">${new Date(item.createdAt).toLocaleString()}</td>
-                    <td data-label="Product">${product ? product.name : '-'}</td>
-                    <td data-label="Type">${item.type === 'in' ? 'Stock In' : 'Stock Out'}</td>
-                    <td data-label="Qty">${qty}</td>
-                    <td data-label="Note">${item.note || '-'}</td>
+                    <td data-label="Product"><strong>${product.name}</strong></td>
+                    <td data-label="Category">${(categories.find(c => c.id === product.categoryId) || {}).name || '-'}</td>
+                    <td data-label="Stock">${product.stock ?? 0}</td>
+                    <td data-label="Low Stock">${product.lowStock ?? '-'}</td>
                 </tr>
-            `;
-        }).join('');
+            `).join('');
 
-        const stockRows = stockProducts.map(product => `
-            <tr>
-                <td data-label="Product"><strong>${product.name}</strong></td>
-                <td data-label="Category">${(categories.find(c => c.id === product.categoryId) || {}).name || '-'}</td>
-                <td data-label="Stock">${product.stock ?? 0}</td>
-                <td data-label="Low Stock">${product.lowStock ?? '-'}</td>
-            </tr>
-        `).join('');
-
-        canvas.innerHTML = `
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -1844,78 +2504,89 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-inventory-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-inventory-message');
-                    const productId = document.getElementById('inventory-product').value;
-                    const type = document.getElementById('inventory-type').value;
-                    const quantity = Number(document.getElementById('inventory-qty').value);
-                    const note = document.getElementById('inventory-note').value.trim();
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-inventory-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-inventory-message');
+                        const productId = document.getElementById('inventory-product').value;
+                        const type = document.getElementById('inventory-type').value;
+                        const quantity = Number(document.getElementById('inventory-qty').value);
+                        const note = document.getElementById('inventory-note').value.trim();
 
-                    if (!productId) {
-                        this.showMessage('ops-inventory-message', 'Select a product first.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(quantity) || quantity <= 0) {
-                        this.showMessage('ops-inventory-message', 'Quantity must be at least 1.', 'error');
-                        return;
-                    }
+                        if (!productId) {
+                            this.showMessage('ops-inventory-message', 'Select a product first.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(quantity) || quantity <= 0) {
+                            this.showMessage('ops-inventory-message', 'Quantity must be at least 1.', 'error');
+                            return;
+                        }
 
-                    const targetProduct = products.find(p => p.id === productId);
-                    if (!targetProduct) {
-                        this.showMessage('ops-inventory-message', 'Product not found.', 'error');
-                        return;
-                    }
-                    const nextStock = type === 'in' ? (targetProduct.stock || 0) + quantity : (targetProduct.stock || 0) - quantity;
-                    if (nextStock < 0) {
-                        this.showMessage('ops-inventory-message', 'Not enough stock for this action.', 'error');
-                        return;
-                    }
-                    const updatedProducts = products.map(p => p.id === productId ? { ...p, stock: nextStock } : p);
+                        const targetProduct = products.find(p => p.id === productId);
+                        if (!targetProduct) {
+                            this.showMessage('ops-inventory-message', 'Product not found.', 'error');
+                            return;
+                        }
+                        const nextStock = type === 'in' ? (targetProduct.stock || 0) + quantity : (targetProduct.stock || 0) - quantity;
+                        if (nextStock < 0) {
+                            this.showMessage('ops-inventory-message', 'Not enough stock for this action.', 'error');
+                            return;
+                        }
 
-                    this.writeBranchData('products', updatedProducts);
-                    const newEntry = {
-                        id: this.generateId(),
-                        productId,
-                        type,
-                        quantity,
-                        note,
-                        createdAt: Date.now()
-                    };
-                    const updatedInventory = [newEntry, ...inventory];
-                    this.writeBranchData('inventory', updatedInventory);
-                    this.showToast('Inventory updated', 'success');
-                    this.renderInventoryModule(canvas);
-                });
-            }
-        }, 0);
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            const updatedProduct = { ...targetProduct, stock: nextStock };
+                            await this.upsertBranchProduct(updatedProduct);
+                            await this.createBranchInventory({ productId, type, quantity, note });
+                            this.showToast('Inventory updated', 'success');
+                            this.renderInventoryModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to update inventory:', error);
+                            this.showMessage('ops-inventory-message', error.message || 'Failed to update inventory.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Save Movement';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderSalesModule(canvas) {
-        const categories = this.readBranchData('categories', []);
-        const products = this.readBranchData('products', []);
-        const customers = this.readBranchData('customers', []);
-        const sales = this.readBranchData('sales', []);
+        canvas.innerHTML = this.getLoaderHTML();
 
-        const categoryOptions = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
-        const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-        const rows = sales.slice(0, 20).map(sale => `
-            <tr>
-                <td data-label="Date">${new Date(sale.createdAt).toLocaleString()}</td>
-                <td data-label="Product">${sale.productName || '-'}</td>
-                <td data-label="Category">${sale.categoryName || '-'}</td>
-                <td data-label="Qty">${sale.quantity}</td>
-                <td data-label="Price">${this.formatCurrency(sale.price || 0)}</td>
-                <td data-label="Total">${this.formatCurrency(sale.total || 0)}</td>
-                <td data-label="Customer">${sale.customerName || 'Walk-in'}</td>
-            </tr>
-        `).join('');
+        Promise.all([
+            this.fetchBranchCategories(),
+            this.fetchBranchProducts(),
+            this.fetchBranchCustomers(),
+            this.fetchBranchSales()
+        ]).then(([categories, products, customers, sales]) => {
+            const categoryOptions = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+            const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
+            const rows = sales.slice(0, 20).map(sale => `
+                <tr>
+                    <td data-label="Date">${new Date(sale.createdAt).toLocaleString()}</td>
+                    <td data-label="Product">${sale.productName || '-'}</td>
+                    <td data-label="Category">${sale.categoryName || '-'}</td>
+                    <td data-label="Qty">${sale.quantity}</td>
+                    <td data-label="Price">${this.formatCurrency(sale.price || 0)}</td>
+                    <td data-label="Total">${this.formatCurrency(sale.total || 0)}</td>
+                    <td data-label="Customer">${sale.customerName || 'Walk-in'}</td>
+                </tr>
+            `).join('');
 
-        canvas.innerHTML = `
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2003,129 +2674,147 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const categorySelect = document.getElementById('sale-category');
-            const productSelect = document.getElementById('sale-product');
-            const priceInput = document.getElementById('sale-price');
-            const qtyInput = document.getElementById('sale-qty');
-            const totalInput = document.getElementById('sale-total');
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const categorySelect = document.getElementById('sale-category');
+                const productSelect = document.getElementById('sale-product');
+                const priceInput = document.getElementById('sale-price');
+                const qtyInput = document.getElementById('sale-qty');
+                const totalInput = document.getElementById('sale-total');
 
-            const refreshProducts = () => {
-                if (!productSelect) return;
-                const categoryId = categorySelect ? categorySelect.value : 'all';
-                const filtered = categoryId === 'all' ? products : products.filter(p => p.categoryId === categoryId);
-                const options = filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-                productSelect.innerHTML = `
-                    <option value="" disabled selected>${filtered.length === 0 ? 'No products in category' : 'Select product'}</option>
-                    ${options}
-                `;
-                if (priceInput) priceInput.value = '';
-                if (totalInput) totalInput.value = this.formatCurrency(0);
-            };
+                const refreshProducts = () => {
+                    if (!productSelect) return;
+                    const categoryId = categorySelect ? categorySelect.value : 'all';
+                    const filtered = categoryId === 'all' ? products : products.filter(p => p.categoryId === categoryId);
+                    const options = filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                    productSelect.innerHTML = `
+                        <option value="" disabled selected>${filtered.length === 0 ? 'No products in category' : 'Select product'}</option>
+                        ${options}
+                    `;
+                    if (priceInput) priceInput.value = '';
+                    if (totalInput) totalInput.value = this.formatCurrency(0);
+                };
 
-            const updateTotals = () => {
-                const productId = productSelect ? productSelect.value : '';
-                const quantity = Number(qtyInput ? qtyInput.value : 0);
-                const product = products.find(p => p.id === productId);
-                const price = product ? Number(product.sellingPrice || 0) : 0;
-                if (priceInput) priceInput.value = price ? price : 0;
-                const total = quantity > 0 ? price * quantity : 0;
-                if (totalInput) totalInput.value = this.formatCurrency(total);
-            };
-
-            if (categorySelect) {
-                refreshProducts();
-                categorySelect.addEventListener('change', () => {
-                    refreshProducts();
-                });
-            }
-
-            if (productSelect) {
-                productSelect.addEventListener('change', () => updateTotals());
-            }
-
-            if (qtyInput) {
-                qtyInput.addEventListener('input', () => updateTotals());
-            }
-
-            const form = document.getElementById('ops-sales-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-sales-message');
+                const updateTotals = () => {
                     const productId = productSelect ? productSelect.value : '';
                     const quantity = Number(qtyInput ? qtyInput.value : 0);
-                    const customerId = document.getElementById('sale-customer').value;
-                    const note = document.getElementById('sale-note').value.trim();
-
-                    if (!productId) {
-                        this.showMessage('ops-sales-message', 'Select a product first.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(quantity) || quantity <= 0) {
-                        this.showMessage('ops-sales-message', 'Quantity must be at least 1.', 'error');
-                        return;
-                    }
-
                     const product = products.find(p => p.id === productId);
-                    if (!product) {
-                        this.showMessage('ops-sales-message', 'Product not found.', 'error');
-                        return;
-                    }
+                    const price = product ? Number(product.sellingPrice || 0) : 0;
+                    if (priceInput) priceInput.value = price ? price : 0;
+                    const total = quantity > 0 ? price * quantity : 0;
+                    if (totalInput) totalInput.value = this.formatCurrency(total);
+                };
 
-                    if ((product.itemType || 'product') === 'product') {
-                        const nextStock = (product.stock || 0) - quantity;
-                        if (nextStock < 0) {
-                            this.showMessage('ops-sales-message', 'Not enough stock for this sale.', 'error');
+                if (categorySelect) {
+                    refreshProducts();
+                    categorySelect.addEventListener('change', () => {
+                        refreshProducts();
+                    });
+                }
+
+                if (productSelect) {
+                    productSelect.addEventListener('change', () => updateTotals());
+                }
+
+                if (qtyInput) {
+                    qtyInput.addEventListener('input', () => updateTotals());
+                }
+
+                const form = document.getElementById('ops-sales-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-sales-message');
+                        const productId = productSelect ? productSelect.value : '';
+                        const quantity = Number(qtyInput ? qtyInput.value : 0);
+                        const customerId = document.getElementById('sale-customer').value;
+                        const note = document.getElementById('sale-note').value.trim();
+
+                        if (!productId) {
+                            this.showMessage('ops-sales-message', 'Select a product first.', 'error');
                             return;
                         }
-                        const updatedProducts = products.map(p => p.id === productId ? { ...p, stock: nextStock } : p);
-                        this.writeBranchData('products', updatedProducts);
-                    }
+                        if (Number.isNaN(quantity) || quantity <= 0) {
+                            this.showMessage('ops-sales-message', 'Quantity must be at least 1.', 'error');
+                            return;
+                        }
 
-                    const category = categories.find(c => c.id === product.categoryId);
-                    const customer = customers.find(c => c.id === customerId);
-                    const price = Number(product.sellingPrice || 0);
-                    const total = price * quantity;
+                        const product = products.find(p => p.id === productId);
+                        if (!product) {
+                            this.showMessage('ops-sales-message', 'Product not found.', 'error');
+                            return;
+                        }
 
-                    const newSale = {
-                        id: this.generateId(),
-                        productId,
-                        productName: product.name,
-                        categoryId: product.categoryId,
-                        categoryName: category ? category.name : null,
-                        itemType: product.itemType || 'product',
-                        price,
-                        quantity,
-                        total,
-                        customerId: customerId || null,
-                        customerName: customer ? customer.name : null,
-                        note,
-                        createdAt: Date.now()
-                    };
+                        if ((product.itemType || 'product') === 'product') {
+                            const nextStock = (product.stock || 0) - quantity;
+                            if (nextStock < 0) {
+                                this.showMessage('ops-sales-message', 'Not enough stock for this sale.', 'error');
+                                return;
+                            }
+                        }
 
-                    this.writeBranchData('sales', [newSale, ...sales]);
-                    this.showToast('Sale recorded', 'success');
-                    this.renderSalesModule(canvas);
-                });
-            }
-        }, 0);
+                        const category = categories.find(c => c.id === product.categoryId);
+                        const customer = customers.find(c => c.id === customerId);
+                        const price = Number(product.sellingPrice || 0);
+                        const total = price * quantity;
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            if ((product.itemType || 'product') === 'product') {
+                                const nextStock = (product.stock || 0) - quantity;
+                                await this.upsertBranchProduct({ ...product, stock: nextStock });
+                            }
+
+                            await this.createBranchSale({
+                                productId,
+                                productName: product.name,
+                                categoryId: product.categoryId,
+                                categoryName: category ? category.name : null,
+                                itemType: product.itemType || 'product',
+                                price,
+                                quantity,
+                                total,
+                                customerId: customerId || null,
+                                customerName: customer ? customer.name : null,
+                                note
+                            });
+                            this.showToast('Sale recorded', 'success');
+                            this.renderSalesModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to record sale:', error);
+                            this.showMessage('ops-sales-message', error.message || 'Failed to record sale.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Sale';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderExpensesModule(canvas) {
-        const expenses = this.readBranchData('expenses', []);
-        const rows = expenses.slice(0, 20).map(expense => `
-            <tr>
-                <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
-                <td data-label="Title">${expense.title}</td>
-                <td data-label="Category">${expense.category || '-'}</td>
-                <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
-                <td data-label="Note">${expense.note || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchExpenses().then((expenses) => {
+            const rows = expenses.slice(0, 20).map(expense => `
+                <tr>
+                    <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
+                    <td data-label="Title">${expense.title}</td>
+                    <td data-label="Category">${expense.category || '-'}</td>
+                    <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
+                    <td data-label="Note">${expense.note || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2191,56 +2880,67 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-expense-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-expense-message');
-                    const title = document.getElementById('expense-title').value.trim();
-                    const category = document.getElementById('expense-category').value.trim();
-                    const amount = Number(document.getElementById('expense-amount').value);
-                    const note = document.getElementById('expense-note').value.trim();
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-expense-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-expense-message');
+                        const title = document.getElementById('expense-title').value.trim();
+                        const category = document.getElementById('expense-category').value.trim();
+                        const amount = Number(document.getElementById('expense-amount').value);
+                        const note = document.getElementById('expense-note').value.trim();
 
-                    if (!title) {
-                        this.showMessage('ops-expense-message', 'Expense title is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(amount) || amount < 0) {
-                        this.showMessage('ops-expense-message', 'Amount must be 0 or more.', 'error');
-                        return;
-                    }
+                        if (!title) {
+                            this.showMessage('ops-expense-message', 'Expense title is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(amount) || amount < 0) {
+                            this.showMessage('ops-expense-message', 'Amount must be 0 or more.', 'error');
+                            return;
+                        }
 
-                    const newExpense = {
-                        id: this.generateId(),
-                        title,
-                        category,
-                        amount,
-                        note,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('expenses', [newExpense, ...expenses]);
-                    this.showToast('Expense added', 'success');
-                    this.renderExpensesModule(canvas);
-                });
-            }
-        }, 0);
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchExpense({ title, category, amount, note });
+                            this.showToast('Expense added', 'success');
+                            this.renderExpensesModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save expense:', error);
+                            this.showMessage('ops-expense-message', error.message || 'Failed to save expense.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Expense';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderIncomeModule(canvas) {
-        const incomeEntries = this.readBranchData('income', []);
-        const rows = incomeEntries.slice(0, 20).map(entry => `
-            <tr>
-                <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
-                <td data-label="Title">${entry.title}</td>
-                <td data-label="Source">${entry.source || '-'}</td>
-                <td data-label="Amount">${this.formatCurrency(entry.amount || 0)}</td>
-                <td data-label="Note">${entry.note || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchIncome().then((incomeEntries) => {
+            const rows = incomeEntries.slice(0, 20).map(entry => `
+                <tr>
+                    <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
+                    <td data-label="Title">${entry.title}</td>
+                    <td data-label="Source">${entry.source || '-'}</td>
+                    <td data-label="Amount">${this.formatCurrency(entry.amount || 0)}</td>
+                    <td data-label="Note">${entry.note || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2306,54 +3006,65 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-income-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-income-message');
-                    const title = document.getElementById('income-title').value.trim();
-                    const source = document.getElementById('income-source').value.trim();
-                    const amount = Number(document.getElementById('income-amount').value);
-                    const note = document.getElementById('income-note').value.trim();
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-income-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-income-message');
+                        const title = document.getElementById('income-title').value.trim();
+                        const source = document.getElementById('income-source').value.trim();
+                        const amount = Number(document.getElementById('income-amount').value);
+                        const note = document.getElementById('income-note').value.trim();
 
-                    if (!title) {
-                        this.showMessage('ops-income-message', 'Income title is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(amount) || amount < 0) {
-                        this.showMessage('ops-income-message', 'Amount must be 0 or more.', 'error');
-                        return;
-                    }
+                        if (!title) {
+                            this.showMessage('ops-income-message', 'Income title is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(amount) || amount < 0) {
+                            this.showMessage('ops-income-message', 'Amount must be 0 or more.', 'error');
+                            return;
+                        }
 
-                    const newIncome = {
-                        id: this.generateId(),
-                        title,
-                        source,
-                        amount,
-                        note,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('income', [newIncome, ...incomeEntries]);
-                    this.showToast('Income added', 'success');
-                    this.renderIncomeModule(canvas);
-                });
-            }
-        }, 0);
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchIncome({ title, source, amount, note });
+                            this.showToast('Income added', 'success');
+                            this.renderIncomeModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save income:', error);
+                            this.showMessage('ops-income-message', error.message || 'Failed to save income.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Income';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderNotesModule(canvas) {
-        const notes = this.readBranchData('notes', []);
-        const rows = notes.slice(0, 20).map(note => `
-            <tr>
-                <td data-label="Date">${new Date(note.createdAt).toLocaleString()}</td>
-                <td data-label="Title">${note.title}</td>
-                <td data-label="Details">${note.details || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchNotes().then((notes) => {
+            const rows = notes.slice(0, 20).map(note => `
+                <tr>
+                    <td data-label="Date">${new Date(note.createdAt).toLocaleString()}</td>
+                    <td data-label="Title">${note.title}</td>
+                    <td data-label="Details">${note.details || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2409,45 +3120,59 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-notes-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-notes-message');
-                    const title = document.getElementById('note-title').value.trim();
-                    const details = document.getElementById('note-details').value.trim();
-                    if (!title) {
-                        this.showMessage('ops-notes-message', 'Note title is required.', 'error');
-                        return;
-                    }
-                    const newNote = {
-                        id: this.generateId(),
-                        title,
-                        details,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('notes', [newNote, ...notes]);
-                    this.showToast('Note added', 'success');
-                    this.renderNotesModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-notes-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-notes-message');
+                        const title = document.getElementById('note-title').value.trim();
+                        const details = document.getElementById('note-details').value.trim();
+                        if (!title) {
+                            this.showMessage('ops-notes-message', 'Note title is required.', 'error');
+                            return;
+                        }
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchNote({ title, details });
+                            this.showToast('Note added', 'success');
+                            this.renderNotesModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save note:', error);
+                            this.showMessage('ops-notes-message', error.message || 'Failed to save note.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Note';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderCustomersModule(canvas) {
-        const customers = this.readBranchData('customers', []);
-        const rows = customers.slice(0, 20).map(customer => `
-            <tr>
-                <td data-label="Name">${customer.name}</td>
-                <td data-label="Phone">${customer.phone || '-'}</td>
-                <td data-label="Email">${customer.email || '-'}</td>
-                <td data-label="Address">${customer.address || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchCustomers().then((customers) => {
+            const rows = customers.slice(0, 20).map(customer => `
+                <tr>
+                    <td data-label="Name">${customer.name}</td>
+                    <td data-label="Phone">${customer.phone || '-'}</td>
+                    <td data-label="Email">${customer.email || '-'}</td>
+                    <td data-label="Address">${customer.address || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2512,52 +3237,63 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-customers-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-customers-message');
-                    const name = document.getElementById('customer-name').value.trim();
-                    const phone = document.getElementById('customer-phone').value.trim();
-                    const email = document.getElementById('customer-email').value.trim();
-                    const address = document.getElementById('customer-address').value.trim();
-                    if (!name) {
-                        this.showMessage('ops-customers-message', 'Customer name is required.', 'error');
-                        return;
-                    }
-                    const newCustomer = {
-                        id: this.generateId(),
-                        name,
-                        phone,
-                        email,
-                        address,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('customers', [newCustomer, ...customers]);
-                    this.showToast('Customer added', 'success');
-                    this.renderCustomersModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-customers-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-customers-message');
+                        const name = document.getElementById('customer-name').value.trim();
+                        const phone = document.getElementById('customer-phone').value.trim();
+                        const email = document.getElementById('customer-email').value.trim();
+                        const address = document.getElementById('customer-address').value.trim();
+                        if (!name) {
+                            this.showMessage('ops-customers-message', 'Customer name is required.', 'error');
+                            return;
+                        }
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchCustomer({ name, phone, email, address });
+                            this.showToast('Customer added', 'success');
+                            this.renderCustomersModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save customer:', error);
+                            this.showMessage('ops-customers-message', error.message || 'Failed to save customer.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Customer';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderInvoicesModule(canvas) {
-        const invoices = this.readBranchData('invoices', []);
-        const customers = this.readBranchData('customers', []);
-        const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-        const rows = invoices.slice(0, 20).map(inv => `
-            <tr>
-                <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
-                <td data-label="Invoice">${inv.invoiceNumber}</td>
-                <td data-label="Customer">${inv.customerName || '-'}</td>
-                <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
-                <td data-label="Status">${inv.status}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
+            const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
+            const rows = invoices.slice(0, 20).map(inv => `
+                <tr>
+                    <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
+                    <td data-label="Invoice">${inv.invoiceNumber}</td>
+                    <td data-label="Customer">${inv.customerName || '-'}</td>
+                    <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
+                    <td data-label="Status">${inv.status}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2634,57 +3370,74 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-invoices-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-invoices-message');
-                    const invoiceNumber = document.getElementById('invoice-number').value.trim();
-                    const customerId = document.getElementById('invoice-customer').value;
-                    const amount = Number(document.getElementById('invoice-amount').value);
-                    const status = document.getElementById('invoice-status').value;
-                    const dueDate = document.getElementById('invoice-due').value;
-                    if (!invoiceNumber) {
-                        this.showMessage('ops-invoices-message', 'Invoice number is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(amount) || amount < 0) {
-                        this.showMessage('ops-invoices-message', 'Amount must be 0 or more.', 'error');
-                        return;
-                    }
-                    const customer = customers.find(c => c.id === customerId);
-                    const newInvoice = {
-                        id: this.generateId(),
-                        invoiceNumber,
-                        customerId: customerId || null,
-                        customerName: customer ? customer.name : null,
-                        amount,
-                        status,
-                        dueDate,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('invoices', [newInvoice, ...invoices]);
-                    this.showToast('Invoice added', 'success');
-                    this.renderInvoicesModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-invoices-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-invoices-message');
+                        const invoiceNumber = document.getElementById('invoice-number').value.trim();
+                        const customerId = document.getElementById('invoice-customer').value;
+                        const amount = Number(document.getElementById('invoice-amount').value);
+                        const status = document.getElementById('invoice-status').value;
+                        const dueDate = document.getElementById('invoice-due').value;
+                        if (!invoiceNumber) {
+                            this.showMessage('ops-invoices-message', 'Invoice number is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(amount) || amount < 0) {
+                            this.showMessage('ops-invoices-message', 'Amount must be 0 or more.', 'error');
+                            return;
+                        }
+                        const customer = customers.find(c => c.id === customerId);
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchInvoice({
+                                invoiceNumber,
+                                customerId: customerId || null,
+                                customerName: customer ? customer.name : null,
+                                amount,
+                                status,
+                                dueDate
+                            });
+                            this.showToast('Invoice added', 'success');
+                            this.renderInvoicesModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save invoice:', error);
+                            this.showMessage('ops-invoices-message', error.message || 'Failed to save invoice.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Invoice';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderReportsModule(canvas) {
-        const reports = this.readBranchData('reports', []);
-        const rows = reports.slice(0, 20).map(report => `
-            <tr>
-                <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
-                <td data-label="Type">${report.type}</td>
-                <td data-label="Period">${report.period}</td>
-                <td data-label="Note">${report.note || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchReports().then((reports) => {
+            const rows = reports.slice(0, 20).map(report => `
+                <tr>
+                    <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
+                    <td data-label="Type">${report.type}</td>
+                    <td data-label="Period">${report.period}</td>
+                    <td data-label="Note">${report.note || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2755,44 +3508,57 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-reports-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-reports-message');
-                    const type = document.getElementById('report-type').value;
-                    const period = document.getElementById('report-period').value;
-                    const note = document.getElementById('report-note').value.trim();
-                    const newReport = {
-                        id: this.generateId(),
-                        type,
-                        period,
-                        note,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('reports', [newReport, ...reports]);
-                    this.showToast('Report saved', 'success');
-                    this.renderReportsModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-reports-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-reports-message');
+                        const type = document.getElementById('report-type').value;
+                        const period = document.getElementById('report-period').value;
+                        const note = document.getElementById('report-note').value.trim();
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchReport({ type, period, note });
+                            this.showToast('Report saved', 'success');
+                            this.renderReportsModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save report:', error);
+                            this.showMessage('ops-reports-message', error.message || 'Failed to save report.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Save Report';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderLoansModule(canvas) {
-        const loans = this.readBranchData('loans', []);
-        const rows = loans.slice(0, 20).map(loan => `
-            <tr>
-                <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
-                <td data-label="Borrower">${loan.borrower}</td>
-                <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
-                <td data-label="Status">${loan.status}</td>
-                <td data-label="Due">${loan.dueDate || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchLoans().then((loans) => {
+            const rows = loans.slice(0, 20).map(loan => `
+                <tr>
+                    <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
+                    <td data-label="Borrower">${loan.borrower}</td>
+                    <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
+                    <td data-label="Status">${loan.status}</td>
+                    <td data-label="Due">${loan.dueDate || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2866,57 +3632,67 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-loans-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-loans-message');
-                    const borrower = document.getElementById('loan-borrower').value.trim();
-                    const amount = Number(document.getElementById('loan-amount').value);
-                    const interest = Number(document.getElementById('loan-interest').value || 0);
-                    const status = document.getElementById('loan-status').value;
-                    const dueDate = document.getElementById('loan-due').value;
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-loans-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-loans-message');
+                        const borrower = document.getElementById('loan-borrower').value.trim();
+                        const amount = Number(document.getElementById('loan-amount').value);
+                        const interest = Number(document.getElementById('loan-interest').value || 0);
+                        const status = document.getElementById('loan-status').value;
+                        const dueDate = document.getElementById('loan-due').value;
 
-                    if (!borrower) {
-                        this.showMessage('ops-loans-message', 'Borrower is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(amount) || amount < 0) {
-                        this.showMessage('ops-loans-message', 'Amount must be 0 or more.', 'error');
-                        return;
-                    }
+                        if (!borrower) {
+                            this.showMessage('ops-loans-message', 'Borrower is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(amount) || amount < 0) {
+                            this.showMessage('ops-loans-message', 'Amount must be 0 or more.', 'error');
+                            return;
+                        }
 
-                    const newLoan = {
-                        id: this.generateId(),
-                        borrower,
-                        amount,
-                        interest,
-                        status,
-                        dueDate,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('loans', [newLoan, ...loans]);
-                    this.showToast('Loan added', 'success');
-                    this.renderLoansModule(canvas);
-                });
-            }
-        }, 0);
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchLoan({ borrower, amount, interest, status, dueDate });
+                            this.showToast('Loan added', 'success');
+                            this.renderLoansModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save loan:', error);
+                            this.showMessage('ops-loans-message', error.message || 'Failed to save loan.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Loan';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderAssetsModule(canvas) {
-        const assets = this.readBranchData('assets', []);
-        const rows = assets.slice(0, 20).map(asset => `
-            <tr>
-                <td data-label="Name">${asset.name}</td>
-                <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
-                <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
-                <td data-label="Condition">${asset.condition || '-'}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchAssets().then((assets) => {
+            const rows = assets.slice(0, 20).map(asset => `
+                <tr>
+                    <td data-label="Name">${asset.name}</td>
+                    <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
+                    <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
+                    <td data-label="Condition">${asset.condition || '-'}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -2981,54 +3757,66 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-assets-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-assets-message');
-                    const name = document.getElementById('asset-name').value.trim();
-                    const value = Number(document.getElementById('asset-value').value);
-                    const purchaseDate = document.getElementById('asset-date').value;
-                    const condition = document.getElementById('asset-condition').value.trim();
-                    if (!name) {
-                        this.showMessage('ops-assets-message', 'Asset name is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(value) || value < 0) {
-                        this.showMessage('ops-assets-message', 'Value must be 0 or more.', 'error');
-                        return;
-                    }
-                    const newAsset = {
-                        id: this.generateId(),
-                        name,
-                        value,
-                        purchaseDate,
-                        condition,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('assets', [newAsset, ...assets]);
-                    this.showToast('Asset added', 'success');
-                    this.renderAssetsModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-assets-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-assets-message');
+                        const name = document.getElementById('asset-name').value.trim();
+                        const value = Number(document.getElementById('asset-value').value);
+                        const purchaseDate = document.getElementById('asset-date').value;
+                        const condition = document.getElementById('asset-condition').value.trim();
+                        if (!name) {
+                            this.showMessage('ops-assets-message', 'Asset name is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(value) || value < 0) {
+                            this.showMessage('ops-assets-message', 'Value must be 0 or more.', 'error');
+                            return;
+                        }
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchAsset({ name, value, purchaseDate, condition });
+                            this.showToast('Asset added', 'success');
+                            this.renderAssetsModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save asset:', error);
+                            this.showMessage('ops-assets-message', error.message || 'Failed to save asset.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Asset';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     renderMaintenanceModule(canvas) {
-        const maintenance = this.readBranchData('maintenance', []);
-        const rows = maintenance.slice(0, 20).map(entry => `
-            <tr>
-                <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
-                <td data-label="Title">${entry.title}</td>
-                <td data-label="Asset">${entry.asset || '-'}</td>
-                <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
-                <td data-label="Status">${entry.status}</td>
-            </tr>
-        `).join('');
+        canvas.innerHTML = this.getLoaderHTML();
 
-        canvas.innerHTML = `
+        this.fetchBranchMaintenance().then((maintenance) => {
+            const rows = maintenance.slice(0, 20).map(entry => `
+                <tr>
+                    <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
+                    <td data-label="Title">${entry.title}</td>
+                    <td data-label="Asset">${entry.asset || '-'}</td>
+                    <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
+                    <td data-label="Status">${entry.status}</td>
+                </tr>
+            `).join('');
+
+            canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
@@ -3098,39 +3886,49 @@ const app = {
             </div>
         `;
 
-        setTimeout(() => {
-            this.bindCollapseControls(canvas);
-            const form = document.getElementById('ops-maintenance-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.hideMessage('ops-maintenance-message');
-                    const title = document.getElementById('maintenance-title').value.trim();
-                    const asset = document.getElementById('maintenance-asset').value.trim();
-                    const cost = Number(document.getElementById('maintenance-cost').value || 0);
-                    const status = document.getElementById('maintenance-status').value;
-                    if (!title) {
-                        this.showMessage('ops-maintenance-message', 'Task title is required.', 'error');
-                        return;
-                    }
-                    if (Number.isNaN(cost) || cost < 0) {
-                        this.showMessage('ops-maintenance-message', 'Cost must be 0 or more.', 'error');
-                        return;
-                    }
-                    const newTask = {
-                        id: this.generateId(),
-                        title,
-                        asset,
-                        cost,
-                        status,
-                        createdAt: Date.now()
-                    };
-                    this.writeBranchData('maintenance', [newTask, ...maintenance]);
-                    this.showToast('Maintenance added', 'success');
-                    this.renderMaintenanceModule(canvas);
-                });
-            }
-        }, 0);
+            setTimeout(() => {
+                this.bindCollapseControls(canvas);
+                const form = document.getElementById('ops-maintenance-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        this.hideMessage('ops-maintenance-message');
+                        const title = document.getElementById('maintenance-title').value.trim();
+                        const asset = document.getElementById('maintenance-asset').value.trim();
+                        const cost = Number(document.getElementById('maintenance-cost').value || 0);
+                        const status = document.getElementById('maintenance-status').value;
+                        if (!title) {
+                            this.showMessage('ops-maintenance-message', 'Task title is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(cost) || cost < 0) {
+                            this.showMessage('ops-maintenance-message', 'Cost must be 0 or more.', 'error');
+                            return;
+                        }
+
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Saving...';
+                            submitBtn.disabled = true;
+                        }
+
+                        try {
+                            await this.createBranchMaintenance({ title, asset, cost, status });
+                            this.showToast('Maintenance added', 'success');
+                            this.renderMaintenanceModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to save maintenance:', error);
+                            this.showMessage('ops-maintenance-message', error.message || 'Failed to save maintenance.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Add Task';
+                                submitBtn.disabled = false;
+                            }
+                        }
+                    });
+                }
+            }, 0);
+        });
     },
 
     getOpIcon(id) {
