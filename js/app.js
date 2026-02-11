@@ -15,7 +15,12 @@ const app = {
         theme: 'light',      // 'dark' | 'light'
         theme: 'light',      // 'dark' | 'light'
         currentCurrency: 'TZS',
-        activeModal: null
+        activeModal: null,
+        idb: null,
+        idbReady: false,
+        idbCache: {},
+        idbQueue: [],
+        pagination: {}
     },
 
     // Theme Management
@@ -125,6 +130,74 @@ const app = {
         });
 
         return formatter.format(amount || 0);
+    },
+
+    mergeRowsById(primary = [], secondary = []) {
+        const merged = [];
+        const seen = new Set();
+        const addRow = (row) => {
+            if (!row) return;
+            const rowId = row.id;
+            if (rowId) {
+                if (seen.has(rowId)) return;
+                seen.add(rowId);
+            }
+            merged.push(row);
+        };
+        primary.forEach(addRow);
+        secondary.forEach(addRow);
+        return merged;
+    },
+
+    getTodayWindowValue(items = [], getTime, getValue, windowMs = 24 * 60 * 60 * 1000) {
+        const list = Array.isArray(items) ? items : [];
+        const now = Date.now();
+        const nowDate = new Date(now);
+        const startOfToday = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+        const rollingStart = now - windowMs;
+        const timeFn = typeof getTime === 'function' ? getTime : (item) => item?.createdAt || now;
+        const valueFn = typeof getValue === 'function' ? getValue : () => 1;
+        let todayTotal = 0;
+        let rollingTotal = 0;
+
+        list.forEach((item) => {
+            const time = new Date(timeFn(item) || now).getTime();
+            const value = Number(valueFn(item) || 0);
+            if (time >= startOfToday && time <= now) {
+                todayTotal += value;
+            }
+            if (time >= rollingStart && time <= now) {
+                rollingTotal += value;
+            }
+        });
+
+        return todayTotal || rollingTotal;
+    },
+
+    calculateSalesProfitStats(sales = [], products = []) {
+        const productCostMap = new Map(products.map(product => [product.id, Number(product.costPrice || 0)]));
+        let grossProfit = 0;
+
+        sales.forEach((sale) => {
+            const cost = productCostMap.get(sale.productId) || 0;
+            const price = Number(sale.price || 0);
+            const quantity = Number(sale.quantity || 0);
+            const profit = (price - cost) * quantity;
+            grossProfit += profit;
+        });
+
+        const todaysProfit = this.getTodayWindowValue(
+            sales,
+            (sale) => sale.createdAt || Date.now(),
+            (sale) => {
+                const cost = productCostMap.get(sale.productId) || 0;
+                const price = Number(sale.price || 0);
+                const quantity = Number(sale.quantity || 0);
+                return (price - cost) * quantity;
+            }
+        );
+
+        return { grossProfit, todaysProfit };
     },
 
     // Premium Card Loader
@@ -354,11 +427,28 @@ const app = {
         updateForm.classList.remove('hidden');
     },
 
+    /**
+     * Block all native browser dialogs (prompt, alert, confirm).
+     * Call once at startup. Any future code that accidentally calls
+     * these will get a console warning and a safe no-op return.
+     */
+    blockBrowserPrompts() {
+        const noop = (type) => (...args) => {
+            console.warn(`[BMS] Blocked browser ${type}(). Use inline UI instead.`, ...args);
+            return type === 'confirm' ? false : null;
+        };
+        window.prompt = noop('prompt');
+        window.alert = noop('alert');
+        window.confirm = noop('confirm');
+    },
+
     async init() {
         console.log('BMS Initializing...');
+        this.blockBrowserPrompts();
         this.initTheme(); // Load saved theme preference
         this.cacheDOM();
         this.bindEvents();
+        await this.initIndexedDB();
 
         // Hide auth view initially to prevent flash
         if (this.dom.authView) {
@@ -926,12 +1016,79 @@ const app = {
         return `bms-branch-${branchId}-${segment}`;
     },
 
+    async initIndexedDB() {
+        if (!('indexedDB' in window)) return;
+        try {
+            const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('bms-app', 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains('branchData')) {
+                        db.createObjectStore('branchData', { keyPath: 'key' });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            this.state.idb = db;
+            this.state.idbReady = true;
+            const queue = [...this.state.idbQueue];
+            this.state.idbQueue = [];
+            await Promise.all(queue.map(item => this.idbSet(item.key, item.value)));
+        } catch (error) {
+            console.error('IndexedDB init failed:', error);
+            this.state.idbReady = false;
+        }
+    },
+
+    idbGet(key) {
+        if (!this.state.idbReady || !this.state.idb) return Promise.resolve(null);
+        return new Promise((resolve, reject) => {
+            const tx = this.state.idb.transaction('branchData', 'readonly');
+            const store = tx.objectStore('branchData');
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result ? request.result.value : null);
+            request.onerror = () => reject(request.error);
+        });
+    },
+
+    idbSet(key, value) {
+        if (!this.state.idbReady || !this.state.idb) {
+            this.state.idbQueue.push({ key, value });
+            return Promise.resolve(false);
+        }
+        return new Promise((resolve, reject) => {
+            const tx = this.state.idb.transaction('branchData', 'readwrite');
+            const store = tx.objectStore('branchData');
+            const request = store.put({ key, value });
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        });
+    },
+
     readBranchData(segment, fallback = []) {
         const key = this.getBranchStorageKey(segment);
+        if (this.state.idbCache[key]) {
+            const cached = this.state.idbCache[key];
+            return Array.isArray(cached) ? [...cached] : cached;
+        }
         const raw = localStorage.getItem(key);
-        if (!raw) return Array.isArray(fallback) ? [...fallback] : fallback;
+        if (!raw) {
+            if (this.state.idbReady) {
+                this.idbGet(key).then((value) => {
+                    if (!value) return;
+                    this.state.idbCache[key] = value;
+                    localStorage.setItem(key, JSON.stringify(value));
+                }).catch(() => { });
+            }
+            return Array.isArray(fallback) ? [...fallback] : fallback;
+        }
         try {
             const parsed = JSON.parse(raw);
+            this.state.idbCache[key] = parsed;
+            if (this.state.idbReady) {
+                this.idbSet(key, parsed).catch(() => { });
+            }
             return Array.isArray(parsed) ? parsed : fallback;
         } catch (e) {
             return Array.isArray(fallback) ? [...fallback] : fallback;
@@ -940,7 +1097,60 @@ const app = {
 
     writeBranchData(segment, data) {
         const key = this.getBranchStorageKey(segment);
-        localStorage.setItem(key, JSON.stringify(data || []));
+        const value = data || [];
+        localStorage.setItem(key, JSON.stringify(value));
+        this.state.idbCache[key] = value;
+        this.idbSet(key, value).catch(() => { });
+    },
+
+    getPaginationState(key) {
+        if (!this.state.pagination[key]) {
+            this.state.pagination[key] = { page: 1, pageSize: 10 };
+        }
+        return this.state.pagination[key];
+    },
+
+    setPaginationPage(key, page) {
+        const state = this.getPaginationState(key);
+        state.page = Math.max(1, page);
+    },
+
+    paginateList(list, key, pageSize = 10) {
+        const state = this.getPaginationState(key);
+        state.pageSize = pageSize;
+        const totalItems = list.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const start = (state.page - 1) * pageSize;
+        const items = list.slice(start, start + pageSize);
+        return { items, page: state.page, totalPages, totalItems, pageSize };
+    },
+
+    renderPaginationControls(key, page, totalPages) {
+        if (totalPages <= 1) return '';
+        const prevDisabled = page <= 1 ? 'disabled' : '';
+        const nextDisabled = page >= totalPages ? 'disabled' : '';
+        return `
+            <div class="pagination-controls">
+                <button class="btn-ghost" data-page-key="${key}" data-page-action="prev" ${prevDisabled}>Prev</button>
+                <div class="pagination-info">Page ${page} of ${totalPages}</div>
+                <button class="btn-ghost" data-page-key="${key}" data-page-action="next" ${nextDisabled}>Next</button>
+            </div>
+        `;
+    },
+
+    bindPaginationControls(container, key, totalPages, onChange) {
+        container.querySelectorAll(`[data-page-key="${key}"]`).forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.getAttribute('data-page-action');
+                const state = this.getPaginationState(key);
+                const nextPage = action === 'next' ? state.page + 1 : state.page - 1;
+                const clamped = Math.min(Math.max(1, nextPage), totalPages);
+                if (clamped === state.page) return;
+                this.setPaginationPage(key, clamped);
+                onChange();
+            });
+        });
     },
 
     generateId() {
@@ -1574,6 +1784,12 @@ const app = {
 
     bindCollapseControls(container = document) {
         container.querySelectorAll('[data-collapse-target]').forEach(btn => {
+            const targetId = btn.getAttribute('data-collapse-target');
+            const target = document.getElementById(targetId);
+            if (target) {
+                const isHidden = target.classList.contains('hidden');
+                btn.classList.toggle('collapse-hint', isHidden);
+            }
             btn.addEventListener('click', () => {
                 const targetId = btn.getAttribute('data-collapse-target');
                 const target = document.getElementById(targetId);
@@ -1587,6 +1803,7 @@ const app = {
                 const openText = btn.getAttribute('data-collapse-open-text') || 'Create';
                 const closeText = btn.getAttribute('data-collapse-close-text') || 'Close';
                 btn.textContent = isHidden ? closeText : openText;
+                btn.classList.toggle('collapse-hint', !isHidden);
             });
         });
     },
@@ -1961,7 +2178,8 @@ const app = {
             this.fetchBranchCategories(),
             this.fetchBranchProducts()
         ]);
-        const rows = categories.map(cat => {
+        const { items: pagedCategories, page: categoriesPage, totalPages: categoriesPages } = this.paginateList(categories, 'categories', 10);
+        const rows = pagedCategories.map(cat => {
             const count = products.filter(p => p.categoryId === cat.id).length;
             return `
                 <tr>
@@ -2027,6 +2245,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('categories', categoriesPage, categoriesPages)}
                     `}
                 </div>
             </div>
@@ -2034,6 +2253,7 @@ const app = {
 
         setTimeout(() => {
             this.bindCollapseControls(canvas);
+            this.bindPaginationControls(canvas, 'categories', categoriesPages, () => this.renderCategoriesModule(canvas));
             const form = document.getElementById('ops-category-form');
             if (form) {
                 form.addEventListener('submit', async (e) => {
@@ -2097,7 +2317,8 @@ const app = {
 
         Promise.all([this.fetchBranchCategories(), this.fetchBranchProducts()]).then(([categories, products]) => {
             const options = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
-            const rows = products.map(product => {
+            const { items: pagedProducts, page: productsPage, totalPages: productsPages } = this.paginateList(products, 'products', 10);
+            const rows = pagedProducts.map(product => {
                 const category = categories.find(c => c.id === product.categoryId);
                 const itemType = product.itemType || 'product';
                 const stockValue = itemType === 'service' ? '-' : (product.stock ?? 0);
@@ -2215,6 +2436,7 @@ const app = {
                                     </tbody>
                                 </table>
                             </div>
+                            ${this.renderPaginationControls('products', productsPage, productsPages)}
                         `}
                     </div>
                 </div>
@@ -2222,6 +2444,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'products', productsPages, () => this.renderProductsModule(canvas));
                 const typeSelect = document.getElementById('product-type');
                 const categorySelect = document.getElementById('product-category');
                 const newCategoryWrap = document.getElementById('product-new-category');
@@ -2384,7 +2607,9 @@ const app = {
         ]).then(([products, categories, inventory]) => {
             const stockProducts = products.filter(p => (p.itemType || 'product') === 'product');
             const options = stockProducts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-            const rows = inventory.slice(0, 20).map(item => {
+            const { items: pagedMovements, page: movementsPage, totalPages: movementsPages } = this.paginateList(inventory, 'inventory-movements', 10);
+            const { items: pagedStock, page: stockPage, totalPages: stockPages } = this.paginateList(stockProducts, 'inventory-stock', 10);
+            const rows = pagedMovements.map(item => {
                 const product = products.find(p => p.id === item.productId);
                 const qty = item.type === 'in' ? `+${item.quantity}` : `-${item.quantity}`;
                 return `
@@ -2398,7 +2623,7 @@ const app = {
                 `;
             }).join('');
 
-            const stockRows = stockProducts.map(product => `
+            const stockRows = pagedStock.map(product => `
                 <tr>
                     <td data-label="Product"><strong>${product.name}</strong></td>
                     <td data-label="Category">${(categories.find(c => c.id === product.categoryId) || {}).name || '-'}</td>
@@ -2473,6 +2698,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('inventory-stock', stockPage, stockPages)}
                     `}
                 </div>
 
@@ -2499,6 +2725,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('inventory-movements', movementsPage, movementsPages)}
                     `}
                 </div>
             </div>
@@ -2506,6 +2733,8 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'inventory-stock', stockPages, () => this.renderInventoryModule(canvas));
+                this.bindPaginationControls(canvas, 'inventory-movements', movementsPages, () => this.renderInventoryModule(canvas));
                 const form = document.getElementById('ops-inventory-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -2563,6 +2792,214 @@ const app = {
         });
     },
 
+    // ── Receipt generator (IMG or PDF) ──
+    _generateReceipt(sale, format) {
+        const prof = this.state.currentProfile;
+        const branchName = prof?.branchName || prof?.branch_name || prof?.full_name || 'Business';
+        const biz = { address: prof?.address || '', phone: prof?.phone || '', email: prof?.email || '' };
+        const dateObj = new Date(sale.createdAt);
+        const dateStr = dateObj.toISOString().slice(0, 10);
+        const timeStr = dateObj.toLocaleTimeString();
+        const transId = 'S-' + (sale.id || Date.now()).toString().slice(-13);
+        const totalFormatted = this.formatCurrency(sale.total || 0);
+        const priceFormatted = this.formatCurrency(sale.price || 0);
+        const subtotalFormatted = this.formatCurrency(sale.total || 0);
+
+        // Build receipt DOM (hidden)
+        const receiptDiv = document.createElement('div');
+        receiptDiv.id = 'receipt-render-target';
+        receiptDiv.style.cssText = 'position:fixed;left:-9999px;top:0;z-index:-1;';
+        receiptDiv.innerHTML = `
+<div style="width:320px;font-family:'Courier New',Courier,monospace;background:#fff;color:#000;padding:0;">
+    <div style="width:100%;overflow:hidden;line-height:0;">
+        <svg width="320" height="14" viewBox="0 0 320 14" style="display:block;">
+            <path d="M0 14 ${Array.from({ length: 32 }, (_, i) => `L${i * 10 + 5} 0 L${(i + 1) * 10} 14`).join(' ')}" fill="#000"/>
+        </svg>
+    </div>
+    <div style="padding:16px 20px 8px;">
+        <div style="text-align:center;margin-bottom:8px;">
+            <div style="font-size:17px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">${branchName}</div>
+            ${biz.address ? `<div style="font-size:11px;margin-top:4px;">${biz.address}</div>` : ''}
+            ${biz.phone ? `<div style="font-size:11px;">Tel: ${biz.phone}</div>` : ''}
+            ${biz.email ? `<div style="font-size:11px;">Email: ${biz.email}</div>` : ''}
+        </div>
+        <div style="border-top:2px solid #000;margin:10px 0;"></div>
+        <div style="text-align:center;font-size:15px;font-weight:bold;margin:8px 0;">SALES RECEIPT</div>
+        <div style="border-top:1px solid #000;margin:8px 0;"></div>
+        <div style="font-size:12px;line-height:1.7;">
+            <div>Date: ${dateStr}</div>
+            <div>Time: ${timeStr}</div>
+            <div>Customer: ${(sale.customerName || 'WALK IN').toUpperCase()}</div>
+        </div>
+        <div style="border-top:1px solid #000;margin:8px 0;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin-bottom:4px;">
+            <span style="flex:2;">ITEM/DESCRIPTION</span>
+            <span style="flex:0.5;text-align:right;">QTY</span>
+            <span style="flex:1;text-align:right;">PRICE</span>
+        </div>
+        <div style="font-size:12px;margin-bottom:2px;">${sale.productName || '-'}</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;">
+            <span style="flex:2;"></span>
+            <span style="flex:0.5;text-align:right;">${sale.quantity}</span>
+            <span style="flex:1;text-align:right;">${priceFormatted}</span>
+        </div>
+        <div style="height:16px;"></div>
+        <div style="border-top:1px solid #000;margin:8px 0;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+            <span>Subtotal:</span><span>${subtotalFormatted}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:bold;margin-bottom:8px;">
+            <span>TOTAL:</span><span>${totalFormatted}</span>
+        </div>
+        <div style="font-size:12px;margin-bottom:4px;">Payment: Cash</div>
+        <div style="border-top:1px solid #000;margin:10px 0;"></div>
+        <div style="text-align:center;font-size:12px;line-height:1.6;margin-bottom:8px;">
+            <div style="font-weight:bold;">Thank you for your business!</div>
+            <div>Visit us again</div>
+        </div>
+        <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+        <div style="text-align:center;font-size:10px;color:#444;margin-bottom:8px;">Trans ID: ${transId}</div>
+    </div>
+    <div style="width:100%;overflow:hidden;line-height:0;">
+        <svg width="320" height="14" viewBox="0 0 320 14" style="display:block;">
+            <path d="M0 0 ${Array.from({ length: 32 }, (_, i) => `L${i * 10 + 5} 14 L${(i + 1) * 10} 0`).join(' ')}" fill="#000"/>
+        </svg>
+    </div>
+</div>`;
+        document.body.appendChild(receiptDiv);
+        const target = receiptDiv.querySelector('div');
+
+        // ── Load a CDN script dynamically ──
+        const loadScript = (url) => new Promise((res, rej) => {
+            const s = document.createElement('script');
+            s.src = url;
+            s.onload = res;
+            s.onerror = rej;
+            document.head.appendChild(s);
+        });
+
+        if (format === 'pdf') {
+            // ── PDF via jsPDF ──
+            const doPdf = async () => {
+                try {
+                    const cvs = await window.html2canvas(target, { scale: 2, backgroundColor: '#fff' });
+                    const imgData = cvs.toDataURL('image/png');
+                    const pxW = cvs.width;
+                    const pxH = cvs.height;
+                    const mmW = (pxW / 2) * 0.264583;
+                    const mmH = (pxH / 2) * 0.264583;
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH] });
+                    pdf.addImage(imgData, 'PNG', 0, 0, mmW, mmH);
+                    pdf.save(`receipt-${transId}.pdf`);
+                    this.showToast('PDF receipt downloaded', 'success');
+                } catch (err) {
+                    console.error(err);
+                    this.showToast('Failed to generate PDF', 'error');
+                } finally {
+                    receiptDiv.remove();
+                }
+            };
+            const needed = [];
+            if (!window.html2canvas) needed.push(loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'));
+            if (!window.jspdf) needed.push(loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
+            Promise.all(needed).then(doPdf).catch(() => {
+                receiptDiv.remove();
+                this.showToast('Failed to load PDF library', 'error');
+            });
+        } else {
+            // ── Image via html2canvas ──
+            const doImg = () => {
+                window.html2canvas(target, { scale: 2, backgroundColor: '#fff' }).then(cvs => {
+                    const link = document.createElement('a');
+                    link.download = `receipt-${transId}.png`;
+                    link.href = cvs.toDataURL('image/png');
+                    link.click();
+                    receiptDiv.remove();
+                    this.showToast('Image receipt downloaded', 'success');
+                }).catch(err => {
+                    console.error(err);
+                    receiptDiv.remove();
+                    this.showToast('Failed to generate image', 'error');
+                });
+            };
+            if (window.html2canvas) {
+                doImg();
+            } else {
+                loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
+                    .then(doImg)
+                    .catch(() => {
+                        receiptDiv.remove();
+                        this.showToast('Failed to load image library', 'error');
+                    });
+            }
+        }
+    },
+
+    // ── PIN Verification Modal ──
+    promptPinVerification(onSuccess) {
+        if (!this.state.hasSecurityPin) {
+            onSuccess();
+            return;
+        }
+
+        // Remove existing
+        document.querySelectorAll('.pin-verify-popup').forEach(el => el.remove());
+
+        const popup = document.createElement('div');
+        popup.className = 'pin-verify-popup';
+        popup.innerHTML = `
+            <div class="pin-verify-overlay"></div>
+            <div class="pin-verify-dialog">
+                <div style="font-weight:600;font-size:1.1rem;margin-bottom:1rem;text-align:center;">Security Check</div>
+                <div style="margin-bottom:1rem;">
+                    <input type="password" class="input-field pin-input" placeholder="Enter Security PIN" maxlength="6" style="text-align:center;letter-spacing:4px;font-size:1.2rem;">
+                    <div class="pin-error" style="color:var(--accent);font-size:0.85rem;margin-top:0.5rem;text-align:center;min-height:1.2em;"></div>
+                </div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button class="btn-ghost pin-cancel" style="flex:1;">Cancel</button>
+                    <button class="btn-primary pin-confirm" style="flex:1;">Verify</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        const input = popup.querySelector('.pin-input');
+        const errorEl = popup.querySelector('.pin-error');
+        const close = () => popup.remove();
+
+        // Focus input
+        setTimeout(() => input.focus(), 50);
+
+        const verify = async () => {
+            const pin = input.value.trim();
+            if (!pin) return;
+
+            errorEl.textContent = 'Verifying...';
+            try {
+                const isValid = await Auth.verifySecurityPin(pin);
+                if (isValid) {
+                    close();
+                    onSuccess();
+                } else {
+                    errorEl.textContent = 'Incorrect PIN';
+                    input.value = '';
+                    input.focus();
+                }
+            } catch (err) {
+                console.error(err);
+                errorEl.textContent = 'Error verifying PIN';
+            }
+        };
+
+        popup.querySelector('.pin-verify-overlay').addEventListener('click', close);
+        popup.querySelector('.pin-cancel').addEventListener('click', close);
+        popup.querySelector('.pin-confirm').addEventListener('click', verify);
+        input.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') verify();
+        });
+    },
+
     renderSalesModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
@@ -2572,19 +3009,55 @@ const app = {
             this.fetchBranchCustomers(),
             this.fetchBranchSales()
         ]).then(([categories, products, customers, sales]) => {
-            const categoryOptions = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-            const rows = sales.slice(0, 20).map(sale => `
-                <tr>
-                    <td data-label="Date">${new Date(sale.createdAt).toLocaleString()}</td>
-                    <td data-label="Product">${sale.productName || '-'}</td>
-                    <td data-label="Category">${sale.categoryName || '-'}</td>
-                    <td data-label="Qty">${sale.quantity}</td>
-                    <td data-label="Price">${this.formatCurrency(sale.price || 0)}</td>
-                    <td data-label="Total">${this.formatCurrency(sale.total || 0)}</td>
-                    <td data-label="Customer">${sale.customerName || 'Walk-in'}</td>
-                </tr>
-            `).join('');
+            const salesList = Array.isArray(sales) ? sales : [];
+            const cachedSales = this.readBranchData('sales', []);
+            const mergedSales = this.mergeRowsById(salesList, cachedSales);
+            const statsSales = mergedSales.length ? mergedSales : salesList;
+            const { grossProfit, todaysProfit } = this.calculateSalesProfitStats(statsSales, products);
+            const { items: pagedSales, page: salesPage, totalPages: salesPages } = this.paginateList(salesList, 'sales', 10);
+            const saleColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+            const rows = pagedSales.map((sale, idx) => {
+                const color = saleColors[idx % saleColors.length];
+                const dateStr = new Date(sale.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+                const timeStr = new Date(sale.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                const product = products.find(p => p.id === sale.productId);
+                const costPrice = product ? Number(product.costPrice || 0) : 0;
+                const profit = (Number(sale.price || 0) - costPrice) * Number(sale.quantity || 0);
+                const profitColor = profit > 0 ? '#22c55e' : '#ef4444';
+                const profitLabel = (profit >= 0 ? '+' : '') + this.formatCurrency(profit);
+                const saleJson = encodeURIComponent(JSON.stringify(sale));
+                return `
+                <div class="sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}">
+                    <div class="sale-item-header">
+                        <span class="sale-item-title">${sale.productName || 'Unknown'}</span>
+                        <span class="sale-item-badge" style="background: ${profitColor}18; color: ${profitColor};">Profit: ${profitLabel}</span>
+                    </div>
+                    <div class="sale-item-subtitle">
+                        ${sale.quantity} × ${this.formatCurrency(sale.price || 0)} · ${sale.categoryName || 'Uncategorized'}<br>
+                        ${sale.customerName || 'Walk-in'} · ${dateStr}, ${timeStr}
+                    </div>
+                    <div class="sale-item-actions">
+                        <button class="sale-action-btn sale-action-edit" data-action="edit" title="Edit">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            Edit
+                        </button>
+                        <button class="sale-action-btn sale-action-delete" data-action="delete" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14H7L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                            Delete
+                        </button>
+                        <button class="sale-action-btn sale-action-print" data-action="print" title="Download Receipt">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Receipt
+                        </button>
+                        <button class="sale-action-btn sale-action-copy" data-action="copy" title="Copy">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            Copy
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
             <div class="page-enter">
@@ -2592,6 +3065,17 @@ const app = {
                     <div>
                         <h3>Sales</h3>
                         <div class="text-muted" style="font-size: 0.85rem;">Record sales and track totals</div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Today's Profit</div>
+                        <div class="stat-value">${this.formatCurrency(todaysProfit)}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Gross Profit</div>
+                        <div class="stat-value">${this.formatCurrency(grossProfit)}</div>
                     </div>
                 </div>
 
@@ -2604,16 +3088,9 @@ const app = {
                         <div id="ops-sales-message" class="message-box hidden"></div>
                         <form id="ops-sales-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
-                                <label>Category</label>
-                                <select id="sale-category" class="input-field" ${categories.length === 0 ? 'disabled' : ''}>
-                                    <option value="all" selected>All Categories</option>
-                                    ${categoryOptions}
-                                </select>
-                            </div>
-                            <div class="input-group">
                                 <label>Product</label>
-                                <select id="sale-product" class="input-field" ${products.length === 0 ? 'disabled' : ''}>
-                                    <option value="" disabled selected>${products.length === 0 ? 'Add products first' : 'Select product'}</option>
+                                <select id="sale-product" class="input-field">
+                                    <option value="" disabled selected>Select product</option>
                                 </select>
                             </div>
                             <div class="input-group">
@@ -2622,7 +3099,7 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Quantity</label>
-                                <input type="number" id="sale-qty" min="1" step="1" placeholder="1" ${products.length === 0 ? 'disabled' : ''}>
+                                <input type="number" id="sale-qty" min="1" step="1" placeholder="1" value="1">
                             </div>
                             <div class="input-group">
                                 <label>Line Total</label>
@@ -2639,7 +3116,7 @@ const app = {
                                 <label>Note</label>
                                 <input type="text" id="sale-note" placeholder="Optional note">
                             </div>
-                            <button type="submit" class="btn-primary" style="width: auto;" ${products.length === 0 ? 'disabled' : ''}>Add Sale</button>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Sale</button>
                         </form>
                     </div>
                 </div>
@@ -2648,27 +3125,13 @@ const app = {
                     <div class="card-header">
                         <h4 class="card-title">Recent Sales</h4>
                     </div>
-                    ${sales.length === 0 ? `
+                    ${salesList.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Product</th>
-                                        <th>Category</th>
-                                        <th>Qty</th>
-                                        <th>Price</th>
-                                        <th>Total</th>
-                                        <th>Customer</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="sale-items-list">
+                            ${rows}
                         </div>
+                        ${this.renderPaginationControls('sales', salesPage, salesPages)}
                     `}
                 </div>
             </div>
@@ -2676,27 +3139,31 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                const categorySelect = document.getElementById('sale-category');
+                this.bindPaginationControls(canvas, 'sales', salesPages, () => this.renderSalesModule(canvas));
                 const productSelect = document.getElementById('sale-product');
                 const priceInput = document.getElementById('sale-price');
                 const qtyInput = document.getElementById('sale-qty');
                 const totalInput = document.getElementById('sale-total');
+                const quickAddValue = '__quick_add_product__';
 
-                const refreshProducts = () => {
+                const refreshProducts = (selectedId = '') => {
                     if (!productSelect) return;
-                    const categoryId = categorySelect ? categorySelect.value : 'all';
-                    const filtered = categoryId === 'all' ? products : products.filter(p => p.categoryId === categoryId);
-                    const options = filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                    const options = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
                     productSelect.innerHTML = `
-                        <option value="" disabled selected>${filtered.length === 0 ? 'No products in category' : 'Select product'}</option>
+                        <option value="" disabled ${selectedId ? '' : 'selected'}>Select product</option>
                         ${options}
+                        <option value="${quickAddValue}">+ Add & Save New Product</option>
                     `;
+                    if (selectedId) {
+                        productSelect.value = selectedId;
+                    }
                     if (priceInput) priceInput.value = '';
                     if (totalInput) totalInput.value = this.formatCurrency(0);
                 };
 
                 const updateTotals = () => {
                     const productId = productSelect ? productSelect.value : '';
+                    if (productId === quickAddValue) return;
                     const quantity = Number(qtyInput ? qtyInput.value : 0);
                     const product = products.find(p => p.id === productId);
                     const price = product ? Number(product.sellingPrice || 0) : 0;
@@ -2705,19 +3172,132 @@ const app = {
                     if (totalInput) totalInput.value = this.formatCurrency(total);
                 };
 
-                if (categorySelect) {
-                    refreshProducts();
-                    categorySelect.addEventListener('change', () => {
+                const handleQuickAdd = () => {
+                    if (!productSelect) return;
+                    this.hideMessage('ops-sales-message');
+                    productSelect.value = '';
+
+                    // Remove any existing inline quick-add card
+                    const existing = document.getElementById('inline-quick-add-card');
+                    if (existing) existing.remove();
+
+                    // Build inline form card
+                    const card = document.createElement('div');
+                    card.id = 'inline-quick-add-card';
+                    card.className = 'inline-quick-add';
+                    card.innerHTML = `
+                        <div class="inline-quick-add-header">
+                            <span>New Product</span>
+                            <button type="button" class="inline-quick-add-close" id="qa-cancel" title="Cancel">&times;</button>
+                        </div>
+                        <div id="qa-message" class="message-box hidden"></div>
+                        <div class="input-group">
+                            <label>Product Name *</label>
+                            <input type="text" id="qa-name" class="input-field" placeholder="e.g. Widget" autofocus>
+                        </div>
+                        <div class="inline-quick-add-row">
+                            <div class="input-group">
+                                <label>Selling Price *</label>
+                                <input type="number" id="qa-sell" class="input-field" min="0" step="0.01" value="0">
+                            </div>
+                            <div class="input-group">
+                                <label>Cost Price</label>
+                                <input type="number" id="qa-cost" class="input-field" min="0" step="0.01" value="0">
+                            </div>
+                            <div class="input-group">
+                                <label>Stock</label>
+                                <input type="number" id="qa-stock" class="input-field" min="0" step="1" value="0">
+                            </div>
+                        </div>
+                        <div class="inline-quick-add-actions">
+                            <button type="button" class="btn-primary" id="qa-save" style="width:auto;">Save Product</button>
+                            <button type="button" class="btn-ghost" id="qa-cancel-btn" style="width:auto;">Cancel</button>
+                        </div>
+                    `;
+
+                    // Insert right after the product select's .input-group
+                    const productGroup = productSelect.closest('.input-group');
+                    productGroup.insertAdjacentElement('afterend', card);
+
+                    // Animate in
+                    requestAnimationFrame(() => card.classList.add('open'));
+
+                    // Focus the name input
+                    const nameInput = card.querySelector('#qa-name');
+                    if (nameInput) nameInput.focus();
+
+                    const removeCard = () => {
+                        card.classList.remove('open');
+                        card.addEventListener('transitionend', () => card.remove(), { once: true });
+                        // Fallback removal if no transition fires
+                        setTimeout(() => { if (card.parentNode) card.remove(); }, 350);
                         refreshProducts();
+                    };
+
+                    // Cancel buttons
+                    card.querySelector('#qa-cancel').addEventListener('click', removeCard);
+                    card.querySelector('#qa-cancel-btn').addEventListener('click', removeCard);
+
+                    // Save button
+                    card.querySelector('#qa-save').addEventListener('click', async () => {
+                        const name = (card.querySelector('#qa-name').value || '').trim();
+                        const sellingPrice = Number(card.querySelector('#qa-sell').value || 0);
+                        const costPrice = Number(card.querySelector('#qa-cost').value || 0);
+                        const stock = Number(card.querySelector('#qa-stock').value || 0);
+
+                        if (!name) {
+                            this.showMessage('qa-message', 'Product name is required.', 'error');
+                            return;
+                        }
+                        if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
+                            this.showMessage('qa-message', 'Selling price must be a valid number.', 'error');
+                            return;
+                        }
+
+                        const saveBtn = card.querySelector('#qa-save');
+                        saveBtn.textContent = 'Saving...';
+                        saveBtn.disabled = true;
+
+                        try {
+                            const created = await this.createBranchProduct({
+                                name,
+                                itemType: 'product',
+                                categoryId: null,
+                                costPrice: Number.isNaN(costPrice) ? 0 : costPrice,
+                                sellingPrice,
+                                unit: '',
+                                stock: Number.isNaN(stock) ? 0 : stock,
+                                lowStock: 5
+                            });
+                            products.unshift(created);
+                            this.showToast('Product added', 'success');
+                            card.remove();
+                            refreshProducts(created.id);
+                            updateTotals();
+                        } catch (error) {
+                            console.error('Failed to add product:', error);
+                            this.showMessage('qa-message', error.message || 'Failed to add product.', 'error');
+                            saveBtn.textContent = 'Save Product';
+                            saveBtn.disabled = false;
+                        }
                     });
-                }
+                };
+
+                refreshProducts();
 
                 if (productSelect) {
-                    productSelect.addEventListener('change', () => updateTotals());
+                    productSelect.addEventListener('change', async () => {
+                        if (productSelect.value === quickAddValue) {
+                            await handleQuickAdd();
+                            return;
+                        }
+                        updateTotals();
+                    });
                 }
 
                 if (qtyInput) {
                     qtyInput.addEventListener('input', () => updateTotals());
+                    if (!qtyInput.value) qtyInput.value = 1;
                 }
 
                 const form = document.getElementById('ops-sales-form');
@@ -2796,15 +3376,215 @@ const app = {
                         }
                     });
                 }
+
+                // ── Sale card action handlers ──
+                canvas.querySelectorAll('.sale-item .sale-action-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const card = btn.closest('.sale-item');
+                        const saleId = card.dataset.saleId;
+                        const sale = JSON.parse(decodeURIComponent(card.dataset.sale));
+                        const action = btn.dataset.action;
+
+                        // ── DELETE ──
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                if (confirm('Are you sure you want to delete this sale?')) {
+                                    try {
+                                        await this.deleteBranchSale(saleId);
+                                        // Update UI
+                                        const row = document.querySelector(`.sale-card[data-id="${saleId}"]`);
+                                        if (row) row.remove();
+                                        this.showToast('Sale deleted', 'success');
+                                    } catch (error) {
+                                        console.error('Failed to delete sale:', error);
+                                        this.showToast('Failed to delete sale', 'error');
+                                    }
+                                }
+                            });
+                        }
+
+                        // ── COPY ──
+                        if (action === 'copy') {
+                            const text = [
+                                `Product: ${sale.productName || 'Unknown'}`,
+                                `Category: ${sale.categoryName || '-'}`,
+                                `Qty: ${sale.quantity}`,
+                                `Price: ${this.formatCurrency(sale.price || 0)}`,
+                                `Total: ${this.formatCurrency(sale.total || 0)}`,
+                                `Customer: ${sale.customerName || 'Walk-in'}`,
+                                `Note: ${sale.note || '-'}`,
+                                `Date: ${new Date(sale.createdAt).toLocaleString()}`
+                            ].join('\n');
+                            try {
+                                await navigator.clipboard.writeText(text);
+                                this.showToast('Copied to clipboard', 'success');
+                            } catch {
+                                this.showToast('Copy failed', 'error');
+                            }
+                        }
+
+                        // ── RECEIPT (IMG / PDF choice) ──
+                        if (action === 'print') {
+                            // Remove any existing receipt popup
+                            document.querySelectorAll('.receipt-format-popup').forEach(el => el.remove());
+
+                            const popup = document.createElement('div');
+                            popup.className = 'receipt-format-popup';
+                            popup.innerHTML = `
+                                <div class="receipt-format-overlay"></div>
+                                <div class="receipt-format-dialog">
+                                    <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.75rem;text-align:center;">Download Receipt As</div>
+                                    <div style="display:flex;gap:0.75rem;">
+                                        <button class="btn-primary receipt-fmt-btn" data-fmt="img" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                            Image
+                                        </button>
+                                        <button class="btn-primary receipt-fmt-btn" data-fmt="pdf" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:var(--accent,#ef4444);">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                                            PDF
+                                        </button>
+                                    </div>
+                                    <button class="btn-ghost receipt-fmt-cancel" style="width:100%;margin-top:0.5rem;font-size:0.8rem;">Cancel</button>
+                                </div>
+                            `;
+                            document.body.appendChild(popup);
+
+                            // Close handler
+                            const closePopup = () => popup.remove();
+                            popup.querySelector('.receipt-format-overlay').addEventListener('click', closePopup);
+                            popup.querySelector('.receipt-fmt-cancel').addEventListener('click', closePopup);
+
+                            // Format click handler
+                            popup.querySelectorAll('.receipt-fmt-btn').forEach(fmtBtn => {
+                                fmtBtn.addEventListener('click', () => {
+                                    const fmt = fmtBtn.dataset.fmt;
+                                    closePopup();
+                                    this._generateReceipt(sale, fmt);
+                                });
+                            });
+                        }
+
+                        // ── EDIT ──
+                        if (action === 'edit') {
+                            const existingEdit = card.querySelector('.sale-edit-form');
+                            if (existingEdit) { existingEdit.remove(); return; }
+
+                            const customerOpts = customers.map(c =>
+                                `<option value="${c.id}" ${c.id === sale.customerId ? 'selected' : ''}>${c.name}</option>`
+                            ).join('');
+
+                            const formDiv = document.createElement('div');
+                            formDiv.className = 'sale-edit-form inline-quick-add';
+                            formDiv.innerHTML = `
+                                <div class="inline-quick-add-header">
+                                    <span>Edit Sale</span>
+                                    <button type="button" class="inline-quick-add-close edit-cancel" title="Cancel">&times;</button>
+                                </div>
+                                <div class="inline-quick-add-row">
+                                    <div class="input-group">
+                                        <label>Quantity</label>
+                                        <input type="number" class="input-field edit-qty" value="${sale.quantity}" min="1" step="1">
+                                    </div>
+                                    <div class="input-group">
+                                        <label>Price</label>
+                                        <input type="number" class="input-field edit-price" value="${sale.price}" min="0" step="0.01">
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <label>Customer</label>
+                                    <select class="input-field edit-customer">
+                                        <option value="" ${!sale.customerId ? 'selected' : ''}>Walk-in Customer</option>
+                                        ${customerOpts}
+                                    </select>
+                                </div>
+                                <div class="input-group">
+                                    <label>Note</label>
+                                    <input type="text" class="input-field edit-note" value="${sale.note || ''}" placeholder="Optional note">
+                                </div>
+                                <div class="inline-quick-add-actions">
+                                    <button type="button" class="btn-primary edit-save" style="width:auto;">Save Changes</button>
+                                    <button type="button" class="btn-ghost edit-cancel-btn" style="width:auto;">Cancel</button>
+                                </div>
+                            `;
+                            card.appendChild(formDiv);
+                            requestAnimationFrame(() => formDiv.classList.add('open'));
+
+                            const closeEdit = () => {
+                                formDiv.classList.remove('open');
+                                formDiv.addEventListener('transitionend', () => formDiv.remove(), { once: true });
+                                setTimeout(() => { if (formDiv.parentNode) formDiv.remove(); }, 350);
+                            };
+                            formDiv.querySelector('.edit-cancel').addEventListener('click', closeEdit);
+                            formDiv.querySelector('.edit-cancel-btn').addEventListener('click', closeEdit);
+                            formDiv.querySelector('.edit-save').addEventListener('click', async () => {
+                                const newQty = Number(formDiv.querySelector('.edit-qty').value);
+                                const newPrice = Number(formDiv.querySelector('.edit-price').value);
+                                const newCustomerId = formDiv.querySelector('.edit-customer').value || null;
+                                const newCustomer = customers.find(c => c.id === newCustomerId);
+                                const newNote = formDiv.querySelector('.edit-note').value.trim();
+                                const saveBtn = formDiv.querySelector('.edit-save');
+                                saveBtn.textContent = 'Saving...';
+                                saveBtn.disabled = true;
+                                try {
+                                    await this.upsertBranchSale({
+                                        ...sale,
+                                        quantity: newQty,
+                                        price: newPrice,
+                                        total: newQty * newPrice,
+                                        customerId: newCustomerId,
+                                        customerName: newCustomer ? newCustomer.name : null,
+                                        note: newNote
+                                    });
+                                    this.showToast('Sale updated', 'success');
+                                    this.renderSalesModule(canvas);
+                                } catch (err) {
+                                    console.error(err);
+                                    this.showToast('Failed to update sale', 'error');
+                                    saveBtn.textContent = 'Save Changes';
+                                    saveBtn.disabled = false;
+                                }
+                            });
+                        }
+                    });
+                });
+
             }, 0);
         });
+    },
+
+    // ── Expense-category dropdown helpers ──
+    _defaultExpenseCategories: ['Rent', 'Utilities', 'Salaries', 'Transport', 'Supplies', 'Marketing', 'Maintenance', 'Insurance', 'Taxes', 'Other'],
+
+    _getExpenseCategoryKey() {
+        const bid = this.state.currentProfile?.branchId || 'global';
+        return `bms-expense-categories-${bid}`;
+    },
+
+    getExpenseCategories() {
+        const custom = JSON.parse(localStorage.getItem(this._getExpenseCategoryKey()) || '[]');
+        const merged = [...this._defaultExpenseCategories];
+        custom.forEach(c => { if (!merged.includes(c)) merged.push(c); });
+        return merged;
+    },
+
+    addExpenseCategory(name) {
+        const custom = JSON.parse(localStorage.getItem(this._getExpenseCategoryKey()) || '[]');
+        if (!custom.includes(name)) {
+            custom.push(name);
+            localStorage.setItem(this._getExpenseCategoryKey(), JSON.stringify(custom));
+        }
     },
 
     renderExpensesModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchExpenses().then((expenses) => {
-            const rows = expenses.slice(0, 20).map(expense => `
+            const { items: pagedExpenses, page: expensesPage, totalPages: expensesPages } = this.paginateList(expenses, 'expenses', 10);
+            const categories = this.getExpenseCategories();
+            const quickAddVal = '__quick_add_expense_cat__';
+            const categoryOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            const rows = pagedExpenses.map(expense => `
                 <tr>
                     <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${expense.title}</td>
@@ -2837,7 +3617,11 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Category</label>
-                                <input type="text" id="expense-category" placeholder="e.g. Utilities">
+                                <select id="expense-category" class="input-field">
+                                    <option value="" disabled selected>Select category</option>
+                                    ${categoryOptions}
+                                    <option value="${quickAddVal}">+ Add New Category</option>
+                                </select>
                             </div>
                             <div class="input-group">
                                 <label>Amount</label>
@@ -2875,6 +3659,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('expenses', expensesPage, expensesPages)}
                     `}
                 </div>
             </div>
@@ -2882,13 +3667,78 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'expenses', expensesPages, () => this.renderExpensesModule(canvas));
+
+                // ── Expense-category inline quick-add ──
+                const catSelect = document.getElementById('expense-category');
+                if (catSelect) {
+                    const refreshCatOptions = (selected = '') => {
+                        const cats = this.getExpenseCategories();
+                        const opts = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+                        catSelect.innerHTML = `
+                            <option value="" disabled ${selected ? '' : 'selected'}>Select category</option>
+                            ${opts}
+                            <option value="${quickAddVal}">+ Add New Category</option>
+                        `;
+                        if (selected) catSelect.value = selected;
+                    };
+
+                    catSelect.addEventListener('change', () => {
+                        if (catSelect.value !== quickAddVal) return;
+                        catSelect.value = '';
+
+                        const existing = document.getElementById('inline-quick-add-exp-cat');
+                        if (existing) existing.remove();
+
+                        const card = document.createElement('div');
+                        card.id = 'inline-quick-add-exp-cat';
+                        card.className = 'inline-quick-add';
+                        card.innerHTML = `
+                            <div class="inline-quick-add-header">
+                                <span>New Category</span>
+                                <button type="button" class="inline-quick-add-close" id="ec-cancel" title="Cancel">&times;</button>
+                            </div>
+                            <div class="input-group">
+                                <label>Category Name</label>
+                                <input type="text" id="ec-name" class="input-field" placeholder="e.g. Office Supplies" autofocus>
+                            </div>
+                            <div class="inline-quick-add-actions">
+                                <button type="button" class="btn-primary" id="ec-save" style="width:auto;">Save</button>
+                                <button type="button" class="btn-ghost" id="ec-cancel-btn" style="width:auto;">Cancel</button>
+                            </div>
+                        `;
+                        catSelect.closest('.input-group').insertAdjacentElement('afterend', card);
+                        requestAnimationFrame(() => card.classList.add('open'));
+                        const nameIn = card.querySelector('#ec-name');
+                        if (nameIn) nameIn.focus();
+
+                        const removeCard = () => {
+                            card.classList.remove('open');
+                            card.addEventListener('transitionend', () => card.remove(), { once: true });
+                            setTimeout(() => { if (card.parentNode) card.remove(); }, 350);
+                            refreshCatOptions();
+                        };
+                        card.querySelector('#ec-cancel').addEventListener('click', removeCard);
+                        card.querySelector('#ec-cancel-btn').addEventListener('click', removeCard);
+                        card.querySelector('#ec-save').addEventListener('click', () => {
+                            const name = (card.querySelector('#ec-name').value || '').trim();
+                            if (!name) return;
+                            this.addExpenseCategory(name);
+                            card.remove();
+                            refreshCatOptions(name);
+                            this.showToast('Category added', 'success');
+                        });
+                    });
+                }
+
                 const form = document.getElementById('ops-expense-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
                         e.preventDefault();
                         this.hideMessage('ops-expense-message');
                         const title = document.getElementById('expense-title').value.trim();
-                        const category = document.getElementById('expense-category').value.trim();
+                        const catEl = document.getElementById('expense-category');
+                        const category = (catEl && catEl.value !== quickAddVal) ? catEl.value : '';
                         const amount = Number(document.getElementById('expense-amount').value);
                         const note = document.getElementById('expense-note').value.trim();
 
@@ -2926,11 +3776,38 @@ const app = {
         });
     },
 
+    // ── Income-source dropdown helpers ──
+    _defaultIncomeSources: ['Sales Revenue', 'Service Income', 'Freelance', 'Investments', 'Rental Income', 'Commissions', 'Grants', 'Donations', 'Interest', 'Other'],
+
+    _getIncomeSourceKey() {
+        const bid = this.state.currentProfile?.branchId || 'global';
+        return `bms-income-sources-${bid}`;
+    },
+
+    getIncomeSources() {
+        const custom = JSON.parse(localStorage.getItem(this._getIncomeSourceKey()) || '[]');
+        const merged = [...this._defaultIncomeSources];
+        custom.forEach(s => { if (!merged.includes(s)) merged.push(s); });
+        return merged;
+    },
+
+    addIncomeSource(name) {
+        const custom = JSON.parse(localStorage.getItem(this._getIncomeSourceKey()) || '[]');
+        if (!custom.includes(name)) {
+            custom.push(name);
+            localStorage.setItem(this._getIncomeSourceKey(), JSON.stringify(custom));
+        }
+    },
+
     renderIncomeModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchIncome().then((incomeEntries) => {
-            const rows = incomeEntries.slice(0, 20).map(entry => `
+            const { items: pagedIncome, page: incomePage, totalPages: incomePages } = this.paginateList(incomeEntries, 'income', 10);
+            const sources = this.getIncomeSources();
+            const quickAddVal = '__quick_add_income_src__';
+            const sourceOptions = sources.map(s => `<option value="${s}">${s}</option>`).join('');
+            const rows = pagedIncome.map(entry => `
                 <tr>
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${entry.title}</td>
@@ -2963,7 +3840,11 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Source</label>
-                                <input type="text" id="income-source" placeholder="Optional source">
+                                <select id="income-source" class="input-field">
+                                    <option value="" disabled selected>Select source</option>
+                                    ${sourceOptions}
+                                    <option value="${quickAddVal}">+ Add New Source</option>
+                                </select>
                             </div>
                             <div class="input-group">
                                 <label>Amount</label>
@@ -3001,6 +3882,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('income', incomePage, incomePages)}
                     `}
                 </div>
             </div>
@@ -3008,13 +3890,78 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'income', incomePages, () => this.renderIncomeModule(canvas));
+
+                // ── Income-source inline quick-add ──
+                const srcSelect = document.getElementById('income-source');
+                if (srcSelect) {
+                    const refreshSrcOptions = (selected = '') => {
+                        const srcs = this.getIncomeSources();
+                        const opts = srcs.map(s => `<option value="${s}">${s}</option>`).join('');
+                        srcSelect.innerHTML = `
+                            <option value="" disabled ${selected ? '' : 'selected'}>Select source</option>
+                            ${opts}
+                            <option value="${quickAddVal}">+ Add New Source</option>
+                        `;
+                        if (selected) srcSelect.value = selected;
+                    };
+
+                    srcSelect.addEventListener('change', () => {
+                        if (srcSelect.value !== quickAddVal) return;
+                        srcSelect.value = '';
+
+                        const existing = document.getElementById('inline-quick-add-inc-src');
+                        if (existing) existing.remove();
+
+                        const card = document.createElement('div');
+                        card.id = 'inline-quick-add-inc-src';
+                        card.className = 'inline-quick-add';
+                        card.innerHTML = `
+                            <div class="inline-quick-add-header">
+                                <span>New Source</span>
+                                <button type="button" class="inline-quick-add-close" id="is-cancel" title="Cancel">&times;</button>
+                            </div>
+                            <div class="input-group">
+                                <label>Source Name</label>
+                                <input type="text" id="is-name" class="input-field" placeholder="e.g. Consulting" autofocus>
+                            </div>
+                            <div class="inline-quick-add-actions">
+                                <button type="button" class="btn-primary" id="is-save" style="width:auto;">Save</button>
+                                <button type="button" class="btn-ghost" id="is-cancel-btn" style="width:auto;">Cancel</button>
+                            </div>
+                        `;
+                        srcSelect.closest('.input-group').insertAdjacentElement('afterend', card);
+                        requestAnimationFrame(() => card.classList.add('open'));
+                        const nameIn = card.querySelector('#is-name');
+                        if (nameIn) nameIn.focus();
+
+                        const removeCard = () => {
+                            card.classList.remove('open');
+                            card.addEventListener('transitionend', () => card.remove(), { once: true });
+                            setTimeout(() => { if (card.parentNode) card.remove(); }, 350);
+                            refreshSrcOptions();
+                        };
+                        card.querySelector('#is-cancel').addEventListener('click', removeCard);
+                        card.querySelector('#is-cancel-btn').addEventListener('click', removeCard);
+                        card.querySelector('#is-save').addEventListener('click', () => {
+                            const name = (card.querySelector('#is-name').value || '').trim();
+                            if (!name) return;
+                            this.addIncomeSource(name);
+                            card.remove();
+                            refreshSrcOptions(name);
+                            this.showToast('Source added', 'success');
+                        });
+                    });
+                }
+
                 const form = document.getElementById('ops-income-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
                         e.preventDefault();
                         this.hideMessage('ops-income-message');
                         const title = document.getElementById('income-title').value.trim();
-                        const source = document.getElementById('income-source').value.trim();
+                        const srcEl = document.getElementById('income-source');
+                        const source = (srcEl && srcEl.value !== quickAddVal) ? srcEl.value : '';
                         const amount = Number(document.getElementById('income-amount').value);
                         const note = document.getElementById('income-note').value.trim();
 
@@ -3056,7 +4003,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchNotes().then((notes) => {
-            const rows = notes.slice(0, 20).map(note => `
+            const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 10);
+            const rows = pagedNotes.map(note => `
                 <tr>
                     <td data-label="Date">${new Date(note.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${note.title}</td>
@@ -3115,6 +4063,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('notes', notesPage, notesPages)}
                     `}
                 </div>
             </div>
@@ -3122,6 +4071,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'notes', notesPages, () => this.renderNotesModule(canvas));
                 const form = document.getElementById('ops-notes-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3163,7 +4113,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchCustomers().then((customers) => {
-            const rows = customers.slice(0, 20).map(customer => `
+            const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 10);
+            const rows = pagedCustomers.map(customer => `
                 <tr>
                     <td data-label="Name">${customer.name}</td>
                     <td data-label="Phone">${customer.phone || '-'}</td>
@@ -3232,6 +4183,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('customers', customersPage, customersPages)}
                     `}
                 </div>
             </div>
@@ -3239,6 +4191,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'customers', customersPages, () => this.renderCustomersModule(canvas));
                 const form = document.getElementById('ops-customers-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3283,7 +4236,8 @@ const app = {
 
         Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-            const rows = invoices.slice(0, 20).map(inv => `
+            const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 10);
+            const rows = pagedInvoices.map(inv => `
                 <tr>
                     <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
                     <td data-label="Invoice">${inv.invoiceNumber}</td>
@@ -3365,6 +4319,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('invoices', invoicesPage, invoicesPages)}
                     `}
                 </div>
             </div>
@@ -3372,6 +4327,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'invoices', invoicesPages, () => this.renderInvoicesModule(canvas));
                 const form = document.getElementById('ops-invoices-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3428,7 +4384,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchReports().then((reports) => {
-            const rows = reports.slice(0, 20).map(report => `
+            const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 10);
+            const rows = pagedReports.map(report => `
                 <tr>
                     <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
                     <td data-label="Type">${report.type}</td>
@@ -3503,6 +4460,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('reports', reportsPage, reportsPages)}
                     `}
                 </div>
             </div>
@@ -3510,6 +4468,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'reports', reportsPages, () => this.renderReportsModule(canvas));
                 const form = document.getElementById('ops-reports-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3548,7 +4507,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchLoans().then((loans) => {
-            const rows = loans.slice(0, 20).map(loan => `
+            const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 10);
+            const rows = pagedLoans.map(loan => `
                 <tr>
                     <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
                     <td data-label="Borrower">${loan.borrower}</td>
@@ -3627,6 +4587,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('loans', loansPage, loansPages)}
                     `}
                 </div>
             </div>
@@ -3634,6 +4595,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'loans', loansPages, () => this.renderLoansModule(canvas));
                 const form = document.getElementById('ops-loans-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3683,7 +4645,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchAssets().then((assets) => {
-            const rows = assets.slice(0, 20).map(asset => `
+            const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 10);
+            const rows = pagedAssets.map(asset => `
                 <tr>
                     <td data-label="Name">${asset.name}</td>
                     <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
@@ -3752,6 +4715,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('assets', assetsPage, assetsPages)}
                     `}
                 </div>
             </div>
@@ -3759,6 +4723,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'assets', assetsPages, () => this.renderAssetsModule(canvas));
                 const form = document.getElementById('ops-assets-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -3806,7 +4771,8 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchMaintenance().then((maintenance) => {
-            const rows = maintenance.slice(0, 20).map(entry => `
+            const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 10);
+            const rows = pagedMaintenance.map(entry => `
                 <tr>
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${entry.title}</td>
@@ -3881,6 +4847,7 @@ const app = {
                                 </tbody>
                             </table>
                         </div>
+                        ${this.renderPaginationControls('maintenance', maintenancePage, maintenancePages)}
                     `}
                 </div>
             </div>
@@ -3888,6 +4855,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
+                this.bindPaginationControls(canvas, 'maintenance', maintenancePages, () => this.renderMaintenanceModule(canvas));
                 const form = document.getElementById('ops-maintenance-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -4064,6 +5032,33 @@ const app = {
             </div>
         `;
 
+        // 2.5. Business Details (for receipts) — read from profile state (Supabase-backed)
+        content += `
+            <div class="settings-section">
+                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Business Details</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Used on printed receipts</p>
+                <div id="biz-details-message" class="message-box hidden"></div>
+                <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
+                    <div class="input-group">
+                        <label>Address</label>
+                        <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 3023, Arusha, Kwa Morombo" disabled>
+                    </div>
+                    <div class="input-group">
+                        <label>Phone</label>
+                        <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +255618721563" disabled>
+                    </div>
+                    <div class="input-group">
+                        <label>Email</label>
+                        <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="e.g. info@business.com" disabled>
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
+                        <button type="submit" id="biz-save-btn" class="btn-primary" style="width: auto; display: none;">Save Details</button>
+                    </div>
+                </form>
+            </div>
+        `;
+
         // 3. Profile Info (Admin Only Edit)
         if (role === 'admin') {
             content += `
@@ -4218,6 +5213,59 @@ const app = {
                         e.target.value = this.state.currentCurrency || "TZS";
                     } finally {
                         e.target.disabled = false;
+                    }
+                });
+            }
+
+            // Business Details form handler (Secure Edit)
+            const bizForm = document.getElementById('biz-details-form');
+            if (bizForm) {
+                const editBtn = document.getElementById('biz-edit-btn');
+                const saveBtn = document.getElementById('biz-save-btn');
+                const inputs = bizForm.querySelectorAll('input');
+
+                // Edit Button Handler
+                editBtn.addEventListener('click', () => {
+                    this.promptPinVerification(() => {
+                        inputs.forEach(inp => inp.disabled = false);
+                        editBtn.style.display = 'none';
+                        saveBtn.style.display = 'inline-block';
+                        inputs[0].focus();
+                    });
+                });
+
+                bizForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const addr = document.getElementById('biz-address').value.trim();
+                    const phone = document.getElementById('biz-phone').value.trim();
+                    const email = document.getElementById('biz-email').value.trim();
+
+                    saveBtn.textContent = 'Saving...';
+                    saveBtn.disabled = true;
+                    try {
+                        if (role === 'admin') {
+                            await Auth.updateEnterprise({ address: addr, phone, email });
+                        } else {
+                            await Auth.updateBranch(profile.id, { address: addr, phone, email });
+                        }
+                        // Sync state
+                        if (this.state.currentProfile) {
+                            this.state.currentProfile.address = addr;
+                            this.state.currentProfile.phone = phone;
+                            this.state.currentProfile.email = email;
+                        }
+                        this.showToast('Business details saved', 'success');
+
+                        // Re-lock
+                        inputs.forEach(inp => inp.disabled = true);
+                        saveBtn.style.display = 'none';
+                        editBtn.style.display = 'inline-block';
+                    } catch (err) {
+                        console.error(err);
+                        this.showToast('Failed to save details', 'error');
+                    } finally {
+                        saveBtn.textContent = 'Save Details';
+                        saveBtn.disabled = false;
                     }
                 });
             }

@@ -38,7 +38,10 @@ export const Auth = {
                     branch_id: data.id,
                     branch_login_id: data.branch_login_id,
                     theme: data.theme,
-                    currency: data.currency
+                    currency: data.currency,
+                    address: data.address || '',
+                    phone: data.phone || '',
+                    email: data.email || ''
                 };
             } else {
                 // Invalid or expired token
@@ -117,7 +120,10 @@ export const Auth = {
                 branch_id: fullBranch.id,
                 branch_login_id: fullBranch.branch_login_id,
                 theme: fullBranch.theme,
-                currency: fullBranch.currency
+                currency: fullBranch.currency,
+                address: fullBranch.address || '',
+                phone: fullBranch.phone || '',
+                email: fullBranch.email || ''
             };
         }
 
@@ -307,18 +313,22 @@ export const Auth = {
         const { data, error } = await supabase.rpc('update_branch_settings', {
             p_branch_id: branchId,
             p_currency: updates.currency || null,
-            p_theme: updates.theme || null
+            p_theme: updates.theme || null,
+            p_address: updates.address !== undefined ? updates.address : null,
+            p_phone: updates.phone !== undefined ? updates.phone : null,
+            p_email: updates.email !== undefined ? updates.email : null
         });
 
         if (error) throw error;
-        // RPC returns the updated row as a single object (data is the row)
-        // Ensure data is structured correctly if it's nested
-        this.branch = { ...this.branch, ...data }; // Update local state
+        this.branch = { ...this.branch, ...data };
 
         // CRITICAL: Also update the mock profile used by the UI
         if (this.profile && this.profile.id === branchId) {
             this.profile.theme = data.theme;
             this.profile.currency = data.currency;
+            this.profile.address = data.address || '';
+            this.profile.phone = data.phone || '';
+            this.profile.email = data.email || '';
         }
 
         return data;
