@@ -2878,6 +2878,45 @@ const app = {
             document.head.appendChild(s);
         });
 
+        if (format === 'print') {
+            // ── Print via new window ──
+            const printWin = window.open('', '_blank');
+            if (printWin) {
+                printWin.document.write(`
+                    <html>
+                        <head>
+                            <title>Receipt ${transId}</title>
+                            <style>
+                                html, body { height: 100%; margin: 0; }
+                                body { display: flex; justify-content: center; align-items: center; background: #fff; }
+                                @media print { 
+                                    @page { margin: 0; size: auto; } 
+                                    html, body { height: 100%; margin: 0; }
+                                    body { display: flex; justify-content: center; align-items: center; }
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            ${receiptDiv.innerHTML}
+                            <script>
+                                setTimeout(() => {
+                                    window.print();
+                                    window.close();
+                                }, 300);
+                            </script>
+                        </body>
+                    </html>
+                `);
+                printWin.document.close();
+                receiptDiv.remove();
+                return;
+            } else {
+                this.showToast('Popup blocked. Please allow popups to print.', 'error');
+                receiptDiv.remove();
+                return;
+            }
+        }
+
         if (format === 'pdf') {
             // ── PDF via jsPDF ──
             const doPdf = async () => {
@@ -3128,10 +3167,22 @@ const app = {
                     ${salesList.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
                     ` : `
-                        <div class="sale-items-list">
-                            ${rows}
+                        <div class="sale-list-wrapper">
+                            <div class="sale-items-list" id="sale-list-scroll-target">
+                                ${rows}
+                            </div>
+                            <div class="sale-list-controls">
+                                <button class="sale-scroll-btn" id="sale-scroll-up" title="Previous">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                                </button>
+                                <button class="sale-scroll-btn" id="sale-scroll-down" title="Next">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </button>
+                            </div>
                         </div>
-                        ${this.renderPaginationControls('sales', salesPage, salesPages)}
+                        <div style="margin-top: 1rem;">
+                           ${this.renderPaginationControls('sales', salesPage, salesPages)}
+                        </div>
                     `}
                 </div>
             </div>
@@ -3140,6 +3191,24 @@ const app = {
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
                 this.bindPaginationControls(canvas, 'sales', salesPages, () => this.renderSalesModule(canvas));
+
+                // Scroll Controls
+                const scrollList = document.getElementById('sale-list-scroll-target');
+                const btnUp = document.getElementById('sale-scroll-up');
+                const btnDown = document.getElementById('sale-scroll-down');
+
+                if (scrollList && btnUp && btnDown) {
+                    const scrollAmount = () => scrollList.clientHeight; // Scroll by one item height
+
+                    btnUp.addEventListener('click', () => {
+                        scrollList.scrollBy({ top: -scrollAmount(), behavior: 'smooth' });
+                    });
+
+                    btnDown.addEventListener('click', () => {
+                        scrollList.scrollBy({ top: scrollAmount(), behavior: 'smooth' });
+                    });
+                }
+
                 const productSelect = document.getElementById('sale-product');
                 const priceInput = document.getElementById('sale-price');
                 const qtyInput = document.getElementById('sale-qty');
@@ -3445,6 +3514,9 @@ const app = {
                                             PDF
                                         </button>
                                     </div>
+                                    <div style="text-align:center;margin-top:1rem;margin-bottom:0.25rem;">
+                                        <a href="#" class="receipt-fmt-print" style="color:var(--text-main);text-decoration:none;font-size:0.9rem;border-bottom:1px solid currentColor;opacity:0.8;">Print Receipt</a>
+                                    </div>
                                     <button class="btn-ghost receipt-fmt-cancel" style="width:100%;margin-top:0.5rem;font-size:0.8rem;">Cancel</button>
                                 </div>
                             `;
@@ -3454,6 +3526,13 @@ const app = {
                             const closePopup = () => popup.remove();
                             popup.querySelector('.receipt-format-overlay').addEventListener('click', closePopup);
                             popup.querySelector('.receipt-fmt-cancel').addEventListener('click', closePopup);
+
+                            // Print handler
+                            popup.querySelector('.receipt-fmt-print').addEventListener('click', (e) => {
+                                e.preventDefault();
+                                closePopup();
+                                this._generateReceipt(sale, 'print');
+                            });
 
                             // Format click handler
                             popup.querySelectorAll('.receipt-fmt-btn').forEach(fmtBtn => {
