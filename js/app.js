@@ -132,6 +132,13 @@ const app = {
         return formatter.format(amount || 0);
     },
 
+    formatStatValue(amount) {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(Math.round(amount || 0));
+    },
+
     mergeRowsById(primary = [], secondary = []) {
         const merged = [];
         const seen = new Set();
@@ -163,7 +170,8 @@ const app = {
         list.forEach((item) => {
             const time = new Date(timeFn(item) || now).getTime();
             const value = Number(valueFn(item) || 0);
-            if (time >= startOfToday && time <= now) {
+            // Relaxed check: allow future timestamps for "today" to handle clock skew
+            if (time >= startOfToday) {
                 todayTotal += value;
             }
             if (time >= rollingStart && time <= now) {
@@ -425,6 +433,51 @@ const app = {
         }
 
         updateForm.classList.remove('hidden');
+    },
+
+    showConfirmModal(message, onConfirm) {
+        // Remove existing confirm modal if any
+        document.querySelectorAll('.confirm-modal-popup').forEach(el => el.remove());
+
+        const popup = document.createElement('div');
+        popup.className = 'confirm-modal-popup';
+        popup.innerHTML = `
+            <div class="confirm-modal-overlay"></div>
+            <div class="confirm-modal-dialog">
+                <div class="confirm-modal-message">${message}</div>
+                <div class="confirm-modal-actions">
+                    <button class="btn-ghost confirm-modal-cancel">Cancel</button>
+                    <button class="btn-primary confirm-modal-confirm" style="background: var(--accent, #ef4444);">Delete</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        // Styles for the modal (dynamically added if keyframe verify fails, but simple check)
+        if (!document.getElementById('confirm-modal-styles')) {
+            const style = document.createElement('style');
+            style.id = 'confirm-modal-styles';
+            style.textContent = `
+                .confirm-modal-popup { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; isolation: isolate; }
+                .confirm-modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); z-index: -1; animation: fadeIn 0.2s ease-out; }
+                .confirm-modal-dialog { background: var(--bg-card, #fff); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 1rem; width: 90%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform-origin: center bottom; }
+                .confirm-modal-message { font-size: 1.1rem; color: var(--text-main); margin-bottom: 1.5rem; text-align: center; font-weight: 500; }
+                .confirm-modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+                .confirm-modal-actions button { flex: 1; justify-content: center; }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes slideUp { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+            `;
+            document.head.appendChild(style);
+        }
+
+        const close = () => popup.remove();
+
+        popup.querySelector('.confirm-modal-overlay').addEventListener('click', close);
+        popup.querySelector('.confirm-modal-cancel').addEventListener('click', close);
+        popup.querySelector('.confirm-modal-confirm').addEventListener('click', () => {
+            close();
+            if (onConfirm) onConfirm();
+        });
     },
 
     /**
@@ -1414,8 +1467,35 @@ const app = {
         };
     },
 
-    fetchBranchSales() {
-        return this.fetchBranchRows('sales', 'sales', (row) => this.mapSaleFromDb(row));
+    async fetchBranchSales(page = 1, pageSize = 10, startDate = null, endDate = null) {
+        try {
+            const from = (page - 1) * pageSize;
+            const to = from + pageSize - 1;
+
+            let query = supabase
+                .from('sales')
+                .select('*', { count: 'exact' })
+                .order('created_at', { ascending: false })
+                .range(from, to);
+
+            // Apply filters if provided
+            if (startDate) query = query.gte('created_at', startDate.toISOString());
+            if (endDate) query = query.lte('created_at', endDate.toISOString());
+
+            const { data, count, error } = await query;
+            if (error) throw error;
+
+            const items = (data || []).map(row => this.mapSaleFromDb(row));
+
+            // NOTE: We do NOT cache sales list locally anymore to prevent storage quota issues
+            // this.writeBranchData('sales', mapped); 
+
+            return { items, count: count || 0 };
+        } catch (error) {
+            console.error('Failed to fetch sales page:', error);
+            // Return empty structure on error to prevent UI crash
+            return { items: [], count: 0 };
+        }
     },
 
     createBranchSale(sale) {
@@ -1782,6 +1862,29 @@ const app = {
         return this.deleteBranchRow('maintenance', 'maintenance', taskId);
     },
 
+    adjustStatFontSizes() {
+        if (window.innerWidth > 768) return; // Only on mobile
+
+        const statValues = document.querySelectorAll('.stat-value');
+        statValues.forEach(el => {
+            const container = el.closest('.stat-card');
+            if (!container) return;
+
+            // Initial reset to base mobile size defined in CSS (1.5rem = 24px)
+            // Using a slightly more conservative starting point for logic
+            let fontSize = 24;
+            el.style.fontSize = fontSize + 'px';
+
+            const maxWidth = container.clientWidth - parseInt(window.getComputedStyle(container).paddingLeft) - parseInt(window.getComputedStyle(container).paddingRight);
+
+            // Loop to shrink font until it fits
+            while (el.scrollWidth > maxWidth && fontSize > 10) {
+                fontSize -= 0.5;
+                el.style.fontSize = fontSize + 'px';
+            }
+        });
+    },
+
     bindCollapseControls(container = document) {
         container.querySelectorAll('[data-collapse-target]').forEach(btn => {
             const targetId = btn.getAttribute('data-collapse-target');
@@ -1885,6 +1988,10 @@ const app = {
         } else if (page === 'operations') {
             this.renderOperations();
         }
+
+        // Run font resizing after content is likely rendered
+        // Give enough time for DOM to stabilize and for currency formatting to complete
+        setTimeout(() => this.adjustStatFontSizes(), 50);
     },
 
     renderOperations() {
@@ -3042,21 +3149,33 @@ const app = {
     renderSalesModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
+        const state = this.getPaginationState('sales');
+        const currentPage = state.page || 1;
+        const pageSize = 10;
+
+        // Filter for "Recent Sales" list to show only today's sales
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
         Promise.all([
             this.fetchBranchCategories(),
             this.fetchBranchProducts(),
             this.fetchBranchCustomers(),
-            this.fetchBranchSales()
-        ]).then(([categories, products, customers, sales]) => {
+            this.fetchBranchSales(currentPage, pageSize, todayStart, null)
+        ]).then(([categories, products, customers, salesData]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-            const salesList = Array.isArray(sales) ? sales : [];
-            const cachedSales = this.readBranchData('sales', []);
-            const mergedSales = this.mergeRowsById(salesList, cachedSales);
-            const statsSales = mergedSales.length ? mergedSales : salesList;
-            const { grossProfit, todaysProfit } = this.calculateSalesProfitStats(statsSales, products);
-            const { items: pagedSales, page: salesPage, totalPages: salesPages } = this.paginateList(salesList, 'sales', 10);
+
+            // Handle server-side filtering results
+            const salesList = salesData.items || [];
+            const totalItems = salesData.count || 0;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+            // Update stats immediately (server-side calculation)
+            this.updateSalesStats(canvas);
+
+            // Use original UI row generation
             const saleColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
-            const rows = pagedSales.map((sale, idx) => {
+            const rows = salesList.map((sale, idx) => {
                 const color = saleColors[idx % saleColors.length];
                 const dateStr = new Date(sale.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
                 const timeStr = new Date(sale.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -3098,23 +3217,24 @@ const app = {
             `;
             }).join('');
 
+            // Restore original HTML layout
             canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Sales</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Record sales and track totals</div>
+                        <div class="text-muted" style="font-size: 0.85rem;">Record sales and track totals (Today)</div>
                     </div>
                 </div>
 
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div class="stat-label">Today's Profit</div>
-                        <div class="stat-value">${this.formatCurrency(todaysProfit)}</div>
+                        <div class="stat-value">Loading...</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Gross Profit</div>
-                        <div class="stat-value">${this.formatCurrency(grossProfit)}</div>
+                        <div class="stat-value">Loading...</div>
                     </div>
                 </div>
 
@@ -3181,7 +3301,7 @@ const app = {
                             </div>
                         </div>
                         <div style="margin-top: 1rem;">
-                           ${this.renderPaginationControls('sales', salesPage, salesPages)}
+                           ${this.renderPaginationControls('sales', currentPage, totalPages)}
                         </div>
                     `}
                 </div>
@@ -3190,7 +3310,7 @@ const app = {
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'sales', salesPages, () => this.renderSalesModule(canvas));
+                this.bindPaginationControls(canvas, 'sales', totalPages, () => this.renderSalesModule(canvas));
 
                 // Scroll Controls
                 const scrollList = document.getElementById('sale-list-scroll-target');
@@ -3209,6 +3329,7 @@ const app = {
                     });
                 }
 
+                // Restore Product Select Interaction
                 const productSelect = document.getElementById('sale-product');
                 const priceInput = document.getElementById('sale-price');
                 const qtyInput = document.getElementById('sale-qty');
@@ -3241,6 +3362,7 @@ const app = {
                     if (totalInput) totalInput.value = this.formatCurrency(total);
                 };
 
+                // Restore Quick Add Logic
                 const handleQuickAdd = () => {
                     if (!productSelect) return;
                     this.hideMessage('ops-sales-message');
@@ -3434,6 +3556,10 @@ const app = {
                             });
                             this.showToast('Sale recorded', 'success');
                             this.renderSalesModule(canvas);
+
+                            // Optimization: In server-side pagination, simpler to just re-render or do nothing, 
+                            // as next fetch will get stats. 
+                            // But we call updateSalesStats above to refresh them.
                         } catch (error) {
                             console.error('Failed to record sale:', error);
                             this.showMessage('ops-sales-message', error.message || 'Failed to record sale.', 'error');
@@ -3446,11 +3572,19 @@ const app = {
                     });
                 }
 
-                // ── Sale card action handlers ──
-                canvas.querySelectorAll('.sale-item .sale-action-btn').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
+                // ── Sale card action handlers (Event Delegation) ──
+                // Restore Receipt Popup Logic
+                const pageContainer = canvas.querySelector('.page-enter');
+
+                if (pageContainer) {
+                    pageContainer.addEventListener('click', async (e) => {
+                        const btn = e.target.closest('.sale-action-btn');
+                        if (!btn) return;
+
                         e.stopPropagation();
                         const card = btn.closest('.sale-item');
+                        if (!card) return;
+
                         const saleId = card.dataset.saleId;
                         const sale = JSON.parse(decodeURIComponent(card.dataset.sale));
                         const action = btn.dataset.action;
@@ -3458,17 +3592,14 @@ const app = {
                         // ── DELETE ──
                         if (action === 'delete') {
                             this.promptPinVerification(async () => {
-                                if (confirm('Are you sure you want to delete this sale?')) {
-                                    try {
-                                        await this.deleteBranchSale(saleId);
-                                        // Update UI
-                                        const row = document.querySelector(`.sale-card[data-id="${saleId}"]`);
-                                        if (row) row.remove();
-                                        this.showToast('Sale deleted', 'success');
-                                    } catch (error) {
-                                        console.error('Failed to delete sale:', error);
-                                        this.showToast('Failed to delete sale', 'error');
-                                    }
+                                try {
+                                    await this.deleteBranchSale(saleId);
+                                    if (card) card.remove();
+                                    this.showToast('Sale deleted', 'success');
+                                    this.updateSalesStats(canvas); // Update stats via RPC
+                                } catch (error) {
+                                    console.error('Failed to delete sale:', error);
+                                    this.showToast('Failed to delete sale', 'error');
                                 }
                             });
                         }
@@ -3479,8 +3610,8 @@ const app = {
                                 `Product: ${sale.productName || 'Unknown'}`,
                                 `Category: ${sale.categoryName || '-'}`,
                                 `Qty: ${sale.quantity}`,
-                                `Price: ${this.formatCurrency(sale.price || 0)}`,
-                                `Total: ${this.formatCurrency(sale.total || 0)}`,
+                                `Price: ${this.formatStatValue(sale.price || 0)}`,
+                                `Total: ${this.formatStatValue(sale.total || 0)}`,
                                 `Customer: ${sale.customerName || 'Walk-in'}`,
                                 `Note: ${sale.note || '-'}`,
                                 `Date: ${new Date(sale.createdAt).toLocaleString()}`
@@ -3493,7 +3624,7 @@ const app = {
                             }
                         }
 
-                        // ── RECEIPT (IMG / PDF choice) ──
+                        // ── RECEIPT (IMG / PDF choice) - SAVED FROM DELETION ──
                         if (action === 'print') {
                             // Remove any existing receipt popup
                             document.querySelectorAll('.receipt-format-popup').forEach(el => el.remove());
@@ -3546,89 +3677,242 @@ const app = {
 
                         // ── EDIT ──
                         if (action === 'edit') {
-                            const existingEdit = card.querySelector('.sale-edit-form');
-                            if (existingEdit) { existingEdit.remove(); return; }
-
-                            const customerOpts = customers.map(c =>
-                                `<option value="${c.id}" ${c.id === sale.customerId ? 'selected' : ''}>${c.name}</option>`
-                            ).join('');
-
-                            const formDiv = document.createElement('div');
-                            formDiv.className = 'sale-edit-form inline-quick-add';
-                            formDiv.innerHTML = `
-                                <div class="inline-quick-add-header">
-                                    <span>Edit Sale</span>
-                                    <button type="button" class="inline-quick-add-close edit-cancel" title="Cancel">&times;</button>
-                                </div>
-                                <div class="inline-quick-add-row">
-                                    <div class="input-group">
-                                        <label>Quantity</label>
-                                        <input type="number" class="input-field edit-qty" value="${sale.quantity}" min="1" step="1">
-                                    </div>
-                                    <div class="input-group">
-                                        <label>Price</label>
-                                        <input type="number" class="input-field edit-price" value="${sale.price}" min="0" step="0.01">
-                                    </div>
-                                </div>
-                                <div class="input-group">
-                                    <label>Customer</label>
-                                    <select class="input-field edit-customer">
-                                        <option value="" ${!sale.customerId ? 'selected' : ''}>Walk-in Customer</option>
-                                        ${customerOpts}
-                                    </select>
-                                </div>
-                                <div class="input-group">
-                                    <label>Note</label>
-                                    <input type="text" class="input-field edit-note" value="${sale.note || ''}" placeholder="Optional note">
-                                </div>
-                                <div class="inline-quick-add-actions">
-                                    <button type="button" class="btn-primary edit-save" style="width:auto;">Save Changes</button>
-                                    <button type="button" class="btn-ghost edit-cancel-btn" style="width:auto;">Cancel</button>
-                                </div>
-                            `;
-                            card.appendChild(formDiv);
-                            requestAnimationFrame(() => formDiv.classList.add('open'));
-
-                            const closeEdit = () => {
-                                formDiv.classList.remove('open');
-                                formDiv.addEventListener('transitionend', () => formDiv.remove(), { once: true });
-                                setTimeout(() => { if (formDiv.parentNode) formDiv.remove(); }, 350);
-                            };
-                            formDiv.querySelector('.edit-cancel').addEventListener('click', closeEdit);
-                            formDiv.querySelector('.edit-cancel-btn').addEventListener('click', closeEdit);
-                            formDiv.querySelector('.edit-save').addEventListener('click', async () => {
-                                const newQty = Number(formDiv.querySelector('.edit-qty').value);
-                                const newPrice = Number(formDiv.querySelector('.edit-price').value);
-                                const newCustomerId = formDiv.querySelector('.edit-customer').value || null;
-                                const newCustomer = customers.find(c => c.id === newCustomerId);
-                                const newNote = formDiv.querySelector('.edit-note').value.trim();
-                                const saveBtn = formDiv.querySelector('.edit-save');
-                                saveBtn.textContent = 'Saving...';
-                                saveBtn.disabled = true;
-                                try {
-                                    await this.upsertBranchSale({
-                                        ...sale,
-                                        quantity: newQty,
-                                        price: newPrice,
-                                        total: newQty * newPrice,
-                                        customerId: newCustomerId,
-                                        customerName: newCustomer ? newCustomer.name : null,
-                                        note: newNote
-                                    });
-                                    this.showToast('Sale updated', 'success');
-                                    this.renderSalesModule(canvas);
-                                } catch (err) {
-                                    console.error(err);
-                                    this.showToast('Failed to update sale', 'error');
-                                    saveBtn.textContent = 'Save Changes';
-                                    saveBtn.disabled = false;
-                                }
-                            });
+                            this.showEditSaleModal(sale, products, customers, categories, () => this.renderSalesModule(canvas));
                         }
                     });
-                });
-
+                }
             }, 0);
+        });
+    },
+    // ── PIN Verification Modal ──
+    promptPinVerification(onSuccess) {
+        if (!this.state.hasSecurityPin) {
+            onSuccess();
+            return;
+        }
+
+        // Remove existing
+        document.querySelectorAll('.pin-verify-popup').forEach(el => el.remove());
+
+        const popup = document.createElement('div');
+        popup.className = 'pin-verify-popup';
+        popup.innerHTML = `
+            <div class="pin-verify-overlay"></div>
+            <div class="pin-verify-dialog">
+                <div style="font-weight:600;font-size:1.1rem;margin-bottom:1rem;text-align:center;">Security Check</div>
+                <div style="margin-bottom:1rem;">
+                    <input type="password" class="input-field pin-input" placeholder="Enter Security PIN" maxlength="6" style="text-align:center;letter-spacing:4px;font-size:1.2rem;">
+                    <div class="pin-error" style="color:var(--accent);font-size:0.85rem;margin-top:0.5rem;text-align:center;min-height:1.2em;"></div>
+                </div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button class="btn-ghost pin-cancel" style="flex:1;">Cancel</button>
+                    <button class="btn-primary pin-confirm" style="flex:1;">Verify</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        const input = popup.querySelector('.pin-input');
+        const errorEl = popup.querySelector('.pin-error');
+        const close = () => popup.remove();
+
+        // Focus input
+        setTimeout(() => input.focus(), 50);
+
+        const verify = async () => {
+            const pin = input.value.trim();
+            if (!pin) return;
+
+            errorEl.textContent = 'Verifying...';
+            try {
+                const isValid = await Auth.verifySecurityPin(pin);
+                if (isValid) {
+                    close();
+                    onSuccess();
+                } else {
+                    errorEl.textContent = 'Incorrect PIN';
+                    input.value = '';
+                    input.focus();
+                }
+            } catch (err) {
+                console.error(err);
+                errorEl.textContent = 'Error verifying PIN';
+            }
+        };
+
+        popup.querySelector('.pin-verify-overlay').addEventListener('click', close);
+        popup.querySelector('.pin-cancel').addEventListener('click', close);
+        popup.querySelector('.pin-confirm').addEventListener('click', verify);
+        input.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') verify();
+        });
+    },
+
+
+
+    async updateSalesStats(canvas, salesOverride = null, productsOverride = null) {
+        if (!canvas) return;
+
+        // Use server-side aggregation for performance
+        try {
+            const profile = this.state.currentProfile;
+            const branchId = profile?.branch_id || profile?.id;
+
+            // Calculate start of today in local time, then convert to ISO for server
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const { data, error } = await supabase.rpc('get_branch_sales_stats', {
+                p_branch_id: branchId,
+                p_today_start: today.toISOString()
+            });
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                const stats = data[0];
+                const statValues = canvas.querySelectorAll('.stat-value');
+                if (statValues.length >= 2) {
+                    statValues[0].textContent = this.formatStatValue(stats.todays_profit || 0);
+                    statValues[1].textContent = this.formatStatValue(stats.gross_profit || 0);
+                    if (this.adjustStatFontSizes) this.adjustStatFontSizes(canvas);
+                }
+            }
+        } catch (error) {
+            console.warn('Server-side stats failed (likely SQL function missing), falling back to client-side calc:', error);
+            // Fallback: Client-side calculation (only works for loaded data)
+            // Since we don't load all data anymore, this will be inaccurate for Gross Profit but ok for what we have.
+            const products = productsOverride || this.readBranchData('products', []);
+            // Use whatever sales are passed or empty (dangerous for gross profit)
+            const sales = salesOverride || [];
+            const { grossProfit, todaysProfit } = this.calculateSalesProfitStats(sales, products);
+
+            const statValues = canvas.querySelectorAll('.stat-value');
+            if (statValues.length >= 2) {
+                // Mark as partial/estimate?
+                statValues[0].textContent = this.formatStatValue(todaysProfit);
+                statValues[1].textContent = this.formatStatValue(grossProfit);
+            }
+        }
+    },
+
+    // ── Edit Sale Modal ──
+    showEditSaleModal(sale, products, customers, categories, onSuccess) {
+        // Remove existing
+        document.querySelectorAll('.edit-sale-modal').forEach(el => el.remove());
+
+        const customerOpts = customers.map(c =>
+            `<option value="${c.id}" ${c.id === sale.customerId ? 'selected' : ''}>${c.name}</option>`
+        ).join('');
+
+        const popup = document.createElement('div');
+        popup.className = 'edit-sale-modal';
+        popup.style.cssText = `
+            position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.2s ease;
+        `;
+        popup.innerHTML = `
+            <div class="edit-sale-overlay" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+            <div class="edit-sale-dialog" style="
+                background:var(--bg-surface); width:90%; max-width:400px; border-radius:12px;
+                box-shadow:0 10px 25px rgba(0,0,0,0.2); overflow:hidden; transform:translateY(10px); transition:transform 0.2s ease;
+            ">
+                <div style="padding:1.25rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; font-size:1.1rem;">Edit Sale</h3>
+                    <button class="btn-ghost edit-close" style="padding:0.4rem;">&times;</button>
+                </div>
+                <div style="padding:1.25rem;">
+                    <div style="margin-bottom:1rem;">
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.4rem;">Product</label>
+                        <input type="text" class="input-field" value="${sale.productName || 'Unknown'}" readonly style="background:var(--bg-surface-elevated); opacity:0.8;">
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                        <div>
+                            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.4rem;">Quantity</label>
+                            <input type="number" class="input-field edit-qty" value="${sale.quantity}" min="1" step="1">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.4rem;">Price</label>
+                            <input type="number" class="input-field edit-price" value="${sale.price}" min="0" step="0.01">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:1rem;">
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.4rem;">Customer</label>
+                        <select class="input-field edit-customer">
+                            <option value="" ${!sale.customerId ? 'selected' : ''}>Walk-in Customer</option>
+                            ${customerOpts}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.4rem;">Note</label>
+                        <input type="text" class="input-field edit-note" value="${sale.note || ''}" placeholder="Optional note">
+                    </div>
+                    <div class="edit-error" style="color:var(--accent); font-size:0.85rem; margin-top:0.8rem; min-height:1.2em; display:none;"></div>
+                </div>
+                <div style="padding:1.25rem; border-top:1px solid var(--border); display:flex; gap:0.75rem; justify-content:flex-end;">
+                    <button class="btn-ghost edit-cancel-btn">Cancel</button>
+                    <button class="btn-primary edit-save-btn">Save Changes</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        // Animation in
+        requestAnimationFrame(() => {
+            popup.style.opacity = '1';
+            popup.querySelector('.edit-sale-dialog').style.transform = 'translateY(0)';
+        });
+
+        // Handlers
+        const close = () => {
+            popup.style.opacity = '0';
+            popup.querySelector('.edit-sale-dialog').style.transform = 'translateY(10px)';
+            setTimeout(() => popup.remove(), 200);
+        };
+
+        const showError = (msg) => {
+            const el = popup.querySelector('.edit-error');
+            el.textContent = msg;
+            el.style.display = 'block';
+        };
+
+        popup.querySelector('.edit-sale-overlay').addEventListener('click', close);
+        popup.querySelector('.edit-close').addEventListener('click', close);
+        popup.querySelector('.edit-cancel-btn').addEventListener('click', close);
+
+        popup.querySelector('.edit-save-btn').addEventListener('click', async () => {
+            const btn = popup.querySelector('.edit-save-btn');
+            const newQty = Number(popup.querySelector('.edit-qty').value);
+            const newPrice = Number(popup.querySelector('.edit-price').value);
+            const newCustomerId = popup.querySelector('.edit-customer').value || null;
+            const newCustomer = customers.find(c => c.id === newCustomerId);
+            const newNote = popup.querySelector('.edit-note').value.trim();
+
+            if (newQty <= 0) { showError('Quantity must be at least 1'); return; }
+            if (newPrice < 0) { showError('Price cannot be negative'); return; }
+
+            btn.textContent = 'Saving...';
+            btn.disabled = true;
+
+            try {
+                await this.upsertBranchSale({
+                    ...sale,
+                    quantity: newQty,
+                    price: newPrice,
+                    total: newQty * newPrice,
+                    customerId: newCustomerId,
+                    customerName: newCustomer ? newCustomer.name : null,
+                    note: newNote
+                });
+                this.showToast('Sale updated', 'success');
+                close();
+                onSuccess();
+            } catch (err) {
+                console.error(err);
+                showError('Failed to update sale');
+                btn.textContent = 'Save Changes';
+                btn.disabled = false;
+            }
         });
     },
 
@@ -5585,7 +5869,7 @@ const app = {
         </div>
         <div class="stat-card">
             <div class="stat-label">This Month</div>
-            <div class="stat-value">${this.formatCurrency(0)}</div>
+            <div class="stat-value">${this.formatStatValue(0)}</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Growth</div>
@@ -5682,6 +5966,9 @@ const app = {
         // Wait for Auth to complete before routing
         // Initialize Dashboard Logic (Stats, etc)
         this.initDashboardModule();
+
+        // Ensure stat fonts are correct on initial render
+        setTimeout(() => this.adjustStatFontSizes(), 200);
 
         // Listen for history popstate
         window.addEventListener('popstate', (e) => {

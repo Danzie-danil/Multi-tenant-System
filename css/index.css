@@ -1232,13 +1232,14 @@ a:hover {
     flex-direction: column;
     gap: 0;
     padding: 0;
-    height: 170px;
-    /* Constrained height to show one item */
+    min-height: 150px;
+    max-height: 750px;
+    /* Show ~5 items before scrolling */
     overflow-y: auto;
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    /* Allow scrollbar to be seen */
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1246,7 +1247,14 @@ a:hover {
 }
 
 .sale-items-list::-webkit-scrollbar {
-    display: none;
+    display: block;
+    /* Show scrollbar */
+    width: 6px;
+}
+
+.sale-items-list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
 }
 
 .sale-item {
@@ -1254,8 +1262,8 @@ a:hover {
     border-bottom: 1px solid var(--border);
     padding: 1rem;
     flex-shrink: 0;
-    height: 100%;
-    /* Take full height of container */
+    height: auto;
+    /* Let item define its own height */
     scroll-snap-align: start;
     box-sizing: border-box;
     display: flex;
