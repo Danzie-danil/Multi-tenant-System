@@ -1914,6 +1914,18 @@ const app = {
     loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false) {
         const profile = this.state.currentProfile;
         const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
+
+        // ── STRICT RBAC CHECK ──
+        // Only allow pages explicitly defined in navConfig for this role.
+        // Also allow 'settings' as it is a valid internal redirect to 'profile'.
+        const allowedPages = this.navConfig[role]?.map(p => p.id) || [];
+        // Note: 'home' is implicitly allowed, but usually in navConfig anyway.
+        if (page !== 'home' && !allowedPages.includes(page) && page !== 'settings') {
+            console.warn(`[Security] Access denied: Role '${role}' cannot access page '${page}'. Redirecting to home.`);
+            return this.loadPage('home', true, false, false);
+        }
+        // ── END RBAC CHECK ──
+
         const rolePrefix = this.getRolePrefix(profile);
 
         // Browser History Integration
