@@ -10,14 +10,14 @@ const ASSETS_TO_CACHE = [
     './js/auth.js',
     './js/dashboard.js',
     './js/supabase.js',
-    './icons/icon-circle-72.png',
-    './icons/icon-circle-96.png',
-    './icons/icon-circle-128.png',
-    './icons/icon-circle-144.png',
-    './icons/icon-circle-152.png',
-    './icons/icon-circle-192.png',
-    './icons/icon-circle-384.png',
-    './icons/icon-circle-512.png'
+    './icons/bms-logo-72.png',
+    './icons/bms-logo-96.png',
+    './icons/bms-logo-128.png',
+    './icons/bms-logo-144.png',
+    './icons/bms-logo-152.png',
+    './icons/bms-logo-192.png',
+    './icons/bms-logo-384.png',
+    './icons/bms-logo-512.png'
 ];
 
 // Install Event - Cache Assets
