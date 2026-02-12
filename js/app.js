@@ -529,6 +529,14 @@ const app = {
                 if (this.dom.authView) {
                     this.dom.authView.style.display = '';
                     this.dom.authView.classList.remove('hidden');
+
+                    // Set URL to ?page=auth if not already set or clean
+                    const params = new URLSearchParams(window.location.search);
+                    if (!params.has('page') || params.get('page') !== 'auth') {
+                        const url = new URL(window.location);
+                        url.searchParams.set('page', 'auth');
+                        window.history.replaceState({ page: 'auth' }, '', url);
+                    }
                 }
                 document.body.classList.add('loaded');
             }
@@ -5842,6 +5850,11 @@ const app = {
         // Cleanup Operations Dock
         const existingDock = document.getElementById('ops-dock');
         if (existingDock) existingDock.remove();
+
+        // Clear URL (remove ?page=...) and set to auth
+        const url = new URL(window.location);
+        url.searchParams.set('page', 'auth');
+        window.history.replaceState(null, '', url);
     },
 
     renderHome() {
