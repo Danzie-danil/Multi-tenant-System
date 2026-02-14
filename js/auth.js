@@ -194,6 +194,25 @@ export const Auth = {
 
         if (!error && data) {
             this.profile = data;
+
+            // If Enterprise Admin, fetch enterprise details (address, phone, email)
+            if (data.role === 'enterprise_admin' && data.enterprise_id) {
+                const { data: entData, error: entError } = await supabase
+                    .from('enterprises')
+                    .select('address, phone, email, currency')
+                    .eq('id', data.enterprise_id)
+                    .single();
+                
+                if (!entError && entData) {
+                    this.profile = {
+                        ...this.profile,
+                        address: entData.address || '',
+                        phone: entData.phone || '',
+                        email: entData.email || '',
+                        currency: entData.currency || 'TZS'
+                    };
+                }
+            }
         }
         return data;
     },

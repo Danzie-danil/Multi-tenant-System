@@ -526,6 +526,7 @@ const app = {
                 this.renderDashboard();
             } else {
                 // Show auth view if not logged in
+                this.setTheme('light'); // Enforce light theme on auth
                 if (this.dom.authView) {
                     this.dom.authView.style.display = '';
                     this.dom.authView.classList.remove('hidden');
@@ -543,6 +544,7 @@ const app = {
         } catch (error) {
             console.error('Auth Init Error:', error);
             // Show auth view on error
+            this.setTheme('light'); // Enforce light theme on error
             if (this.dom.authView) {
                 this.dom.authView.style.display = '';
                 this.dom.authView.classList.remove('hidden');
@@ -573,6 +575,56 @@ const app = {
                 window.open(link.href, '_blank', 'noopener,noreferrer');
             }
         });
+    },
+
+    // ── Round Favicon Helper ──
+    async setRoundFavicon(imageUrl) {
+        try {
+            // Force reload by adding timestamp
+            const nocacheUrl = `${imageUrl}?v=${Date.now()}`;
+            console.log('[BMS] Generating round favicon from:', nocacheUrl);
+
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.src = nocacheUrl;
+
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = (e) => reject(new Error('Image load failed'));
+            });
+
+            const size = 96; // Standard size
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Draw circle clip
+            ctx.beginPath();
+            ctx.arc(size / 2, size / 2, size / 2, 0, 2 * Math.PI);
+            ctx.closePath();
+            ctx.clip();
+
+            // Draw image resized to fit
+            ctx.drawImage(img, 0, 0, size, size);
+
+            const dataUrl = canvas.toDataURL('image/png');
+
+            // Remove ALL existing icons to force browser update
+            const existingLinks = document.querySelectorAll("link[rel*='icon']");
+            existingLinks.forEach(el => el.remove());
+
+            // Create fresh link
+            const link = document.createElement('link');
+            link.type = 'image/png';
+            link.rel = 'icon';
+            link.href = dataUrl;
+            document.head.appendChild(link);
+
+            console.log('[BMS] Round favicon updated successfully');
+        } catch (e) {
+            console.warn('[BMS] Failed to generate round favicon:', e);
+        }
     },
 
     cacheDOM() {
@@ -1608,8 +1660,33 @@ const app = {
 
     mapNoteToDb(note) {
         const profile = this.state.currentProfile;
+
+        // Debugging for FK violation
+        if (!profile) {
+            console.error('[BMS] mapNoteToDb: No profile found!');
+            throw new Error("User profile missing. Please log in again.");
+        }
+
+        let branchId = profile.branch_id;
+
+        // If undefined (e.g. Admin), try to fall back to ID if it looks like a branch context, 
+        // but explicit check prevents Admin ID being sent as Branch ID
+        if (!branchId && profile.role === 'branch_manager') {
+            branchId = profile.id;
+        }
+
+        if (!branchId) {
+            console.error('[BMS] mapNoteToDb: No valid branch_id found for role:', profile.role);
+            // If Admin, we cannot insert without a target branch. 
+            // For now, throw specific error to help diagnosis.
+            if (profile.role === 'enterprise_admin') {
+                throw new Error("Admins cannot add notes directly. Please log in as the Branch Manager.");
+            }
+            throw new Error("Missing Branch ID context.");
+        }
+
         return {
-            branch_id: profile?.branch_id || profile?.id,
+            branch_id: branchId,
             title: note.title,
             details: note.details || null
         };
@@ -1619,13 +1696,38 @@ const app = {
         return this.fetchBranchRows('notes', 'notes', (row) => this.mapNoteFromDb(row));
     },
 
-    createBranchNote(note) {
-        return this.createBranchRow('notes', 'notes', this.mapNoteToDb(note), (row) => this.mapNoteFromDb(row));
+    async createBranchNote(note) {
+        try {
+            return await this.createBranchRow('notes', 'notes', this.mapNoteToDb(note), (row) => this.mapNoteFromDb(row));
+        } catch (error) {
+            console.error('[BMS] createBranchNote error:', error);
+
+            // Fallback: Try without details if schema mismatch suspected
+            if (error.message && (error.message.includes('details') || error.message.includes('schema'))) {
+                console.warn('[BMS] Schema mismatch for notes (details column). Retrying without details...');
+                const payload = this.mapNoteToDb(note);
+                delete payload.details;
+                return await this.createBranchRow('notes', 'notes', payload, (row) => this.mapNoteFromDb(row));
+            }
+            throw error;
+        }
     },
 
-    upsertBranchNote(note) {
-        const payload = { ...this.mapNoteToDb(note), id: note.id };
-        return this.upsertBranchRow('notes', 'notes', payload, (row) => this.mapNoteFromDb(row));
+    async upsertBranchNote(note) {
+        try {
+            const payload = { ...this.mapNoteToDb(note), id: note.id };
+            return await this.upsertBranchRow('notes', 'notes', payload, (row) => this.mapNoteFromDb(row));
+        } catch (error) {
+            console.error('[BMS] upsertBranchNote error:', error);
+
+            if (error.message && (error.message.includes('details') || error.message.includes('schema'))) {
+                console.warn('[BMS] Schema mismatch for notes (details column). Retrying without details...');
+                const payload = { ...this.mapNoteToDb(note), id: note.id };
+                delete payload.details;
+                return await this.upsertBranchRow('notes', 'notes', payload, (row) => this.mapNoteFromDb(row));
+            }
+            throw error;
+        }
     },
 
     deleteBranchNote(noteId) {
@@ -2426,14 +2528,16 @@ const app = {
                         this.showToast('Remove products in this category first', 'error');
                         return;
                     }
-                    try {
-                        await this.deleteBranchCategory(id);
-                        this.showToast('Category removed', 'info');
-                        this.renderCategoriesModule(canvas);
-                    } catch (error) {
-                        console.error('Failed to delete category:', error);
-                        this.showToast('Failed to delete category', 'error');
-                    }
+                    this.promptPinVerification(async () => {
+                        try {
+                            await this.deleteBranchCategory(id);
+                            this.showToast('Category removed', 'info');
+                            this.renderCategoriesModule(canvas);
+                        } catch (error) {
+                            console.error('Failed to delete category:', error);
+                            this.showToast('Failed to delete category', 'error');
+                        }
+                    });
                 });
             });
         }, 0);
@@ -2707,17 +2811,19 @@ const app = {
                 document.querySelectorAll('[data-product-delete]').forEach(btn => {
                     btn.addEventListener('click', async () => {
                         const id = btn.getAttribute('data-product-delete');
-                        try {
-                            await this.deleteBranchProduct(id);
-                            const inventory = this.readBranchData('inventory', []);
-                            const updatedInventory = inventory.filter(i => i.productId !== id);
-                            this.writeBranchData('inventory', updatedInventory);
-                            this.showToast('Product removed', 'info');
-                            this.renderProductsModule(canvas);
-                        } catch (error) {
-                            console.error('Failed to delete product:', error);
-                            this.showToast('Failed to delete product', 'error');
-                        }
+                        this.promptPinVerification(async () => {
+                            try {
+                                await this.deleteBranchProduct(id);
+                                const inventory = this.readBranchData('inventory', []);
+                                const updatedInventory = inventory.filter(i => i.productId !== id);
+                                this.writeBranchData('inventory', updatedInventory);
+                                this.showToast('Product removed', 'info');
+                                this.renderProductsModule(canvas);
+                            } catch (error) {
+                                console.error('Failed to delete product:', error);
+                                this.showToast('Failed to delete product', 'error');
+                            }
+                        });
                     });
                 });
             }, 0);
@@ -3105,7 +3211,11 @@ const app = {
     // ── PIN Verification Modal ──
     promptPinVerification(onSuccess) {
         if (!this.state.hasSecurityPin) {
-            onSuccess();
+            // Force user to set PIN if not set
+            this.showConfirmModal(
+                "Security PIN is not set. You must set a PIN to perform this action. Go to Profile?",
+                () => this.loadPage('profile')
+            );
             return;
         }
 
@@ -3704,69 +3814,7 @@ const app = {
             }, 0);
         });
     },
-    // ── PIN Verification Modal ──
-    promptPinVerification(onSuccess) {
-        if (!this.state.hasSecurityPin) {
-            onSuccess();
-            return;
-        }
 
-        // Remove existing
-        document.querySelectorAll('.pin-verify-popup').forEach(el => el.remove());
-
-        const popup = document.createElement('div');
-        popup.className = 'pin-verify-popup';
-        popup.innerHTML = `
-            <div class="pin-verify-overlay"></div>
-            <div class="pin-verify-dialog">
-                <div style="font-weight:600;font-size:1.1rem;margin-bottom:1rem;text-align:center;">Security Check</div>
-                <div style="margin-bottom:1rem;">
-                    <input type="password" class="input-field pin-input" placeholder="Enter Security PIN" maxlength="6" style="text-align:center;letter-spacing:4px;font-size:1.2rem;">
-                    <div class="pin-error" style="color:var(--accent);font-size:0.85rem;margin-top:0.5rem;text-align:center;min-height:1.2em;"></div>
-                </div>
-                <div style="display:flex;gap:0.75rem;">
-                    <button class="btn-ghost pin-cancel" style="flex:1;">Cancel</button>
-                    <button class="btn-primary pin-confirm" style="flex:1;">Verify</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(popup);
-
-        const input = popup.querySelector('.pin-input');
-        const errorEl = popup.querySelector('.pin-error');
-        const close = () => popup.remove();
-
-        // Focus input
-        setTimeout(() => input.focus(), 50);
-
-        const verify = async () => {
-            const pin = input.value.trim();
-            if (!pin) return;
-
-            errorEl.textContent = 'Verifying...';
-            try {
-                const isValid = await Auth.verifySecurityPin(pin);
-                if (isValid) {
-                    close();
-                    onSuccess();
-                } else {
-                    errorEl.textContent = 'Incorrect PIN';
-                    input.value = '';
-                    input.focus();
-                }
-            } catch (err) {
-                console.error(err);
-                errorEl.textContent = 'Error verifying PIN';
-            }
-        };
-
-        popup.querySelector('.pin-verify-overlay').addEventListener('click', close);
-        popup.querySelector('.pin-cancel').addEventListener('click', close);
-        popup.querySelector('.pin-confirm').addEventListener('click', verify);
-        input.addEventListener('keyup', (e) => {
-            if (e.key === 'Enter') verify();
-        });
-    },
 
 
 
@@ -3967,15 +4015,31 @@ const app = {
             const categories = this.getExpenseCategories();
             const quickAddVal = '__quick_add_expense_cat__';
             const categoryOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
-            const rows = pagedExpenses.map(expense => `
-                <tr>
+            const rows = pagedExpenses.map(expense => {
+                const expenseJson = encodeURIComponent(JSON.stringify(expense));
+                return `
+                <tr class="expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
                     <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${expense.title}</td>
                     <td data-label="Category">${expense.category || '-'}</td>
                     <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
                     <td data-label="Note">${expense.note || '-'}</td>
+                    <td data-label="Actions">
+                         <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                            <button class="btn-ghost expense-action-btn" data-action="edit" title="Edit" style="padding:0.2rem 0.4rem;">
+                                <span>✏️</span>
+                            </button>
+                            <button class="btn-ghost expense-action-btn" data-action="tag" title="Tag" style="padding:0.2rem 0.4rem;">
+                                <span>📌</span>
+                            </button>
+                            <button class="btn-ghost expense-action-btn" data-action="delete" title="Delete" style="color:var(--danger);padding:0.2rem 0.4rem;">
+                                <span>🗑️</span>
+                            </button>
+                        </div>
+                    </td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
 
             canvas.innerHTML = `
             <div class="page-enter">
@@ -4035,6 +4099,7 @@ const app = {
                                         <th>Category</th>
                                         <th>Amount</th>
                                         <th>Note</th>
+                                        <th style="text-align:right;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4155,7 +4220,132 @@ const app = {
                         }
                     });
                 }
+
+                // Event Delegation for Expense Actions
+                const tableContainer = canvas.querySelector('.table-container');
+                if (tableContainer) {
+                    tableContainer.addEventListener('click', async (e) => {
+                        const btn = e.target.closest('.expense-action-btn');
+                        if (!btn) return;
+
+                        e.stopPropagation();
+                        const row = btn.closest('.expense-item');
+                        const expenseId = row.dataset.expenseId;
+                        const expense = JSON.parse(decodeURIComponent(row.dataset.expense));
+                        const action = btn.dataset.action;
+
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                try {
+                                    await this.deleteBranchExpense(expenseId);
+                                    row.remove();
+                                    this.showToast('Expense deleted', 'success');
+                                } catch (error) {
+                                    console.error('Failed to delete expense:', error);
+                                    this.showToast('Failed to delete expense', 'error');
+                                }
+                            });
+                        }
+
+                        if (action === 'edit') {
+                            this.showEditExpenseModal(expense, () => this.renderExpensesModule(canvas));
+                        }
+
+                        if (action === 'tag') {
+                            this.showToast('Tags coming soon!', 'info');
+                        }
+                    });
+                }
             }, 0);
+        });
+    },
+
+    showEditExpenseModal(expense, onSuccess) {
+        const existing = document.getElementById('edit-expense-modal');
+        if (existing) existing.remove();
+
+        const categories = this.getExpenseCategories();
+        const categoryOptions = categories.map(c => `<option value="${c}" ${c === expense.category ? 'selected' : ''}>${c}</option>`).join('');
+
+        const modalHTML = `
+            <div id="edit-expense-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 500px; width: 90%;">
+                    <div class="card-header">
+                        <h3 class="card-title">Edit Expense</h3>
+                        <button class="btn-ghost close-modal-btn">&times;</button>
+                    </div>
+                    <div id="edit-expense-message" class="message-box hidden"></div>
+                    <form id="edit-expense-form" style="margin-top: 1rem;">
+                        <input type="hidden" id="edit-expense-id" value="${expense.id}">
+                        <div class="input-group">
+                            <label>Title</label>
+                            <input type="text" id="edit-expense-title" value="${expense.title}" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Category</label>
+                            <select id="edit-expense-category" class="input-field">
+                                <option value="" disabled>Select category</option>
+                                ${categoryOptions}
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Amount</label>
+                            <input type="number" id="edit-expense-amount" value="${expense.amount}" min="0" step="0.01" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Note</label>
+                            <input type="text" id="edit-expense-note" value="${expense.note || ''}" placeholder="Optional note">
+                        </div>
+                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('edit-expense-modal');
+        const form = document.getElementById('edit-expense-form');
+
+        const close = () => modal.remove();
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            this.hideMessage('edit-expense-message');
+
+            const title = document.getElementById('edit-expense-title').value.trim();
+            const category = document.getElementById('edit-expense-category').value;
+            const amount = Number(document.getElementById('edit-expense-amount').value);
+            const note = document.getElementById('edit-expense-note').value.trim();
+
+            if (!title) {
+                this.showMessage('edit-expense-message', 'Title is required', 'error');
+                return;
+            }
+            if (Number.isNaN(amount) || amount < 0) {
+                this.showMessage('edit-expense-message', 'Amount must be valid', 'error');
+                return;
+            }
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Saving...';
+            submitBtn.disabled = true;
+
+            try {
+                await this.upsertBranchExpense({ ...expense, title, category, amount, note });
+                this.showToast('Expense updated', 'success');
+                close();
+                if (onSuccess) onSuccess();
+            } catch (error) {
+                console.error(error);
+                this.showMessage('edit-expense-message', 'Failed to update expense', 'error');
+                submitBtn.textContent = 'Save Changes';
+                submitBtn.disabled = false;
+            }
         });
     },
 
@@ -4387,13 +4577,37 @@ const app = {
 
         this.fetchBranchNotes().then((notes) => {
             const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 10);
-            const rows = pagedNotes.map(note => `
-                <tr>
-                    <td data-label="Date">${new Date(note.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">${note.title}</td>
-                    <td data-label="Details">${note.details || '-'}</td>
-                </tr>
-            `).join('');
+
+            // New Card-based Layout
+            const noteCards = pagedNotes.map(note => {
+                const dateStr = new Date(note.createdAt).toLocaleString();
+                const noteJson = encodeURIComponent(JSON.stringify(note));
+
+                return `
+                <div class="item" data-note-id="${note.id}" data-note="${noteJson}">
+                    <div class="note-preview" style="cursor: pointer;" title="Open note">
+                        <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
+                        <div class="item-subtitle" style="margin-bottom: 0;">${dateStr}</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
+                        <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span style="margin-right: 4px;">✏️</span> Edit
+                        </button>
+                        <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span style="margin-right: 4px;">📌</span> Tag
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost note-action-btn" data-action="delete" title="Delete Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span style="margin-right: 4px;">🗑️</span> Delete
+                        </button>
+                    </div>
+                    <div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">
+                        <!-- Placeholder for tags -->
+                        ${note.tags ? note.tags.map(tag => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${tag}</span>`).join('') : ''}
+                    </div>
+                </div>
+                `;
+            }).join('');
 
             canvas.innerHTML = `
             <div class="page-enter">
@@ -4418,7 +4632,7 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Details</label>
-                                <input type="text" id="note-details" placeholder="Optional details">
+                                <textarea id="note-details" class="input-field" rows="3" placeholder="Optional details"></textarea>
                             </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Note</button>
                         </form>
@@ -4432,29 +4646,20 @@ const app = {
                     ${notes.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Title</th>
-                                        <th>Details</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="notes-list-container" style="display: flex; flex-direction: column; gap: 1rem; padding: 1rem;">
+                            ${noteCards}
                         </div>
                         ${this.renderPaginationControls('notes', notesPage, notesPages)}
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
                 this.bindPaginationControls(canvas, 'notes', notesPages, () => this.renderNotesModule(canvas));
+
+                // Form Handler
                 const form = document.getElementById('ops-notes-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -4479,7 +4684,11 @@ const app = {
                             this.renderNotesModule(canvas);
                         } catch (error) {
                             console.error('Failed to save note:', error);
-                            this.showMessage('ops-notes-message', error.message || 'Failed to save note.', 'error');
+                            let msg = error.message || 'Failed to save note.';
+                            if (msg.includes('schema') || msg.includes('details')) {
+                                msg += ' (Database schema update required. Please run sql/fix_notes_details.sql)';
+                            }
+                            this.showMessage('ops-notes-message', msg, 'error');
                         } finally {
                             if (submitBtn) {
                                 submitBtn.textContent = 'Add Note';
@@ -4488,7 +4697,292 @@ const app = {
                         }
                     });
                 }
+
+                // Event Delegation for Note Actions
+                const listContainer = canvas.querySelector('.notes-list-container');
+                if (listContainer) {
+                    listContainer.addEventListener('click', async (e) => {
+                        // Handle Preview Click (bubbling from .note-preview)
+                        const preview = e.target.closest('.note-preview');
+                        if (preview) {
+                            const card = preview.closest('.item');
+                            const note = JSON.parse(decodeURIComponent(card.dataset.note));
+                            this.showNotePreviewModal(note);
+                            return;
+                        }
+
+                        // Handle Actions
+                        const btn = e.target.closest('.note-action-btn');
+                        if (!btn) return;
+
+                        e.stopPropagation();
+                        const card = btn.closest('.item');
+                        const noteId = card.dataset.noteId;
+                        const note = JSON.parse(decodeURIComponent(card.dataset.note));
+                        const action = btn.dataset.action;
+
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                try {
+                                    await this.deleteBranchNote(noteId);
+                                    card.remove();
+                                    this.showToast('Note deleted', 'success');
+                                    // Optional: Refresh if pagination needs update, or just remove from DOM
+                                    // this.renderNotesModule(canvas); 
+                                } catch (error) {
+                                    console.error('Failed to delete note:', error);
+                                    this.showToast('Failed to delete note', 'error');
+                                }
+                            });
+                        }
+
+                        if (action === 'edit') {
+                            this.showEditNoteModal(note, () => this.renderNotesModule(canvas));
+                        }
+
+                        if (action === 'tag') {
+                            this.showToast('Tags coming soon!', 'info');
+                            // Placeholder for openItemTagsModal
+                        }
+                    });
+                }
+
             }, 0);
+        });
+    },
+
+    showNotePreviewModal(note) {
+        // Create a detailed modal with inline edit capability
+        const existing = document.getElementById('note-preview-modal');
+        if (existing) existing.remove();
+
+        const dateStr = new Date(note.createdAt).toLocaleString();
+
+        // Initial State (View Mode)
+        const modalHTML = `
+            <div id="note-preview-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 900px; width: 90%;">
+                    <!-- Header -->
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem;">
+                        <div style="flex: 1; padding-right: 1rem;">
+                            <!-- View Mode Title -->
+                            <h3 id="np-view-title" style="margin:0; font-size: 1.25rem;">${note.title}</h3>
+                            <div id="np-view-date" class="text-muted" style="font-size: 0.85rem; margin-top: 4px;">${dateStr}</div>
+                            
+                            <!-- Edit Mode Title Input (Hidden) -->
+                            <div id="np-edit-title-group" class="hidden" style="margin-bottom: 0.5rem;">
+                                <label style="font-size: 0.75rem; color: var(--text-muted);">Title</label>
+                                <input type="text" id="np-edit-title" class="input-field" value="${note.title}" style="font-size: 1.1rem; font-weight: 600;">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="np-toggle-edit" class="btn-ghost" style="padding: 6px 12px; display: flex; align-items: center; gap: 6px;">
+                                <span>✏️</span> Edit
+                            </button>
+                            <button class="btn-ghost close-modal-btn" style="padding: 6px;">&times;</button>
+                        </div>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="min-height: 200px;">
+                        <!-- View Mode Body -->
+                        <div id="np-view-body" style="white-space: pre-wrap; line-height: 1.6; color: var(--text-main);">
+                            ${note.details || '<em class="text-muted">No additional details</em>'}
+                        </div>
+
+                        <!-- Edit Mode Body (Hidden) -->
+                        <div id="np-edit-body-group" class="hidden" style="height: 100%;">
+                             <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Content</label>
+                            <textarea id="np-edit-details" class="input-field" style="width: 100%; height: 300px; resize: vertical; font-family: inherit; line-height: 1.5;">${note.details || ''}</textarea>
+                        </div>
+                    </div>
+
+                    <!-- Footer (View Mode only, Edit actions are in header/toggle) -->
+                    <div id="np-footer" class="modal-actions" style="border-top: 1px solid var(--border); margin-top: 1.5rem; padding-top: 1rem; text-align: right;">
+                        <button class="btn-primary close-modal-btn">Close</button>
+                    </div>
+                </div>
+            </div>
+         `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('note-preview-modal');
+        const toggleBtn = document.getElementById('np-toggle-edit');
+
+        // Elements
+        const viewTitle = document.getElementById('np-view-title');
+        const viewDate = document.getElementById('np-view-date');
+        const editTitleGroup = document.getElementById('np-edit-title-group');
+        const editTitleInput = document.getElementById('np-edit-title');
+
+        const viewBody = document.getElementById('np-view-body');
+        const editBodyGroup = document.getElementById('np-edit-body-group');
+        const editBodyInput = document.getElementById('np-edit-details');
+
+        const footer = document.getElementById('np-footer');
+
+        let isEditing = false;
+
+        // Toggle Logic
+        toggleBtn.addEventListener('click', async () => {
+            if (!isEditing) {
+                // Switch to Edit Mode
+                isEditing = true;
+
+                // UI Updates
+                viewTitle.classList.add('hidden');
+                viewDate.classList.add('hidden');
+                editTitleGroup.classList.remove('hidden');
+
+                viewBody.classList.add('hidden');
+                editBodyGroup.classList.remove('hidden');
+
+                footer.classList.add('hidden');
+
+                toggleBtn.innerHTML = '<span>💾</span> Save';
+                toggleBtn.classList.remove('btn-ghost');
+                toggleBtn.classList.add('btn-primary');
+
+                editTitleInput.focus();
+
+            } else {
+                // Save Changes
+                const newTitle = editTitleInput.value.trim();
+                const newDetails = editBodyInput.value.trim();
+
+                if (!newTitle) {
+                    this.showToast('Title is required', 'error');
+                    return;
+                }
+
+                toggleBtn.disabled = true;
+                toggleBtn.innerHTML = 'Saving...';
+
+                try {
+                    await this.upsertBranchNote({ ...note, title: newTitle, details: newDetails });
+                    this.showToast('Note updated', 'success');
+
+                    // Update Local Data & UI
+                    note.title = newTitle;
+                    note.details = newDetails;
+
+                    viewTitle.textContent = newTitle;
+                    viewBody.textContent = newDetails || 'No additional details'; // Simple text update, losing <em> but acceptable
+                    if (!newDetails) viewBody.innerHTML = '<em class="text-muted">No additional details</em>';
+
+                    // Revert to View Mode
+                    isEditing = false;
+
+                    viewTitle.classList.remove('hidden');
+                    viewDate.classList.remove('hidden');
+                    editTitleGroup.classList.add('hidden');
+
+                    viewBody.classList.remove('hidden');
+                    editBodyGroup.classList.add('hidden');
+
+                    footer.classList.remove('hidden');
+
+                    toggleBtn.innerHTML = '<span>✏️</span> Edit';
+                    toggleBtn.classList.remove('btn-primary');
+                    toggleBtn.classList.add('btn-ghost');
+                    toggleBtn.disabled = false;
+
+                    // Refresh Background List (if possible)
+                    const canvas = document.querySelector('#main-content-canvas'); // Hypothetical selector
+                    if (canvas) this.renderNotesModule(canvas); // Attempt refresh, might need correct selector
+                    // For now, reload whole module if we can find the canvas, or just let the next render handle it.
+                    const activeCanvas = document.querySelector('.page-container');
+                    if (activeCanvas) this.renderNotesModule(activeCanvas);
+
+                } catch (error) {
+                    console.error(error);
+                    this.showToast('Failed to save changes', 'error');
+                    toggleBtn.disabled = false;
+                    toggleBtn.innerHTML = '<span>💾</span> Save';
+                }
+            }
+        });
+
+        const close = () => {
+            if (isEditing) {
+                if (!confirm('Discard unsaved changes?')) return;
+            }
+            modal.remove();
+        };
+
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) close();
+        });
+    },
+
+    showEditNoteModal(note, onSuccess) {
+        const existing = document.getElementById('edit-note-modal');
+        if (existing) existing.remove();
+
+        const modalHTML = `
+            <div id="edit-note-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 700px; width: 90%;">
+                    <div class="card-header">
+                        <h3 class="card-title">Edit Note</h3>
+                        <button class="btn-ghost close-modal-btn">&times;</button>
+                    </div>
+                    <div id="edit-note-message" class="message-box hidden"></div>
+                    <form id="edit-note-form" style="margin-top: 1rem;">
+                        <input type="hidden" id="edit-note-id" value="${note.id}">
+                        <div class="input-group">
+                            <label>Title</label>
+                            <input type="text" id="edit-note-title" value="${note.title}" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Details</label>
+                            <textarea id="edit-note-details" class="input-field" rows="5">${note.details || ''}</textarea>
+                        </div>
+                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('edit-note-modal');
+        const form = document.getElementById('edit-note-form');
+
+        const close = () => modal.remove();
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            this.hideMessage('edit-note-message');
+
+            const title = document.getElementById('edit-note-title').value.trim();
+            const details = document.getElementById('edit-note-details').value.trim();
+
+            if (!title) {
+                this.showMessage('edit-note-message', 'Title is required', 'error');
+                return;
+            }
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Saving...';
+            submitBtn.disabled = true;
+
+            try {
+                await this.upsertBranchNote({ ...note, title, details });
+                this.showToast('Note updated', 'success');
+                close();
+                if (onSuccess) onSuccess();
+            } catch (error) {
+                console.error(error);
+                this.showMessage('edit-note-message', 'Failed to update note', 'error');
+                submitBtn.textContent = 'Save Changes';
+                submitBtn.disabled = false;
+            }
         });
     },
 
@@ -5424,15 +5918,15 @@ const app = {
                 <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
                     <div class="input-group">
                         <label>Address</label>
-                        <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 3023, Arusha, Kwa Morombo" disabled>
+                        <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 123 Business St, City" disabled>
                     </div>
                     <div class="input-group">
                         <label>Phone</label>
-                        <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +255618721563" disabled>
+                        <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +123 456 789" disabled>
                     </div>
                     <div class="input-group">
                         <label>Email</label>
-                        <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="e.g. info@business.com" disabled>
+                        <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="youremail@domain.co" disabled>
                     </div>
                     <div style="display:flex;gap:1rem;">
                         <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
@@ -5855,6 +6349,10 @@ const app = {
         const url = new URL(window.location);
         url.searchParams.set('page', 'auth');
         window.history.replaceState(null, '', url);
+
+        // Auto-refresh to clear console/state
+        localStorage.removeItem('bms-theme');
+        window.location.reload();
     },
 
     renderHome() {
