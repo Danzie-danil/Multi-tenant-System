@@ -35,6 +35,7 @@ export const Auth = {
                     full_name: data.name,
                     role: 'branch_manager',
                     enterprise_id: data.enterprise_id,
+                    enterprise_name: '', // Will be fetched if needed or left empty
                     branch_id: data.id,
                     branch_login_id: data.branch_login_id,
                     theme: data.theme,
@@ -43,6 +44,10 @@ export const Auth = {
                     phone: data.phone || '',
                     email: data.email || ''
                 };
+
+                // Fetch enterprise name for branch
+                const { data: ent } = await supabase.from('enterprises').select('name').eq('id', data.enterprise_id).single();
+                if (ent) this.profile.enterprise_name = ent.name;
             } else {
                 // Invalid or expired token
                 localStorage.removeItem('bms-branch-token');
@@ -127,6 +132,7 @@ export const Auth = {
                 full_name: fullBranch.name,
                 role: 'branch_manager',
                 enterprise_id: fullBranch.enterprise_id,
+                enterprise_name: '', // Will be fetched
                 branch_id: fullBranch.id,
                 branch_login_id: fullBranch.branch_login_id,
                 theme: fullBranch.theme,
@@ -135,6 +141,9 @@ export const Auth = {
                 phone: fullBranch.phone || '',
                 email: fullBranch.email || ''
             };
+
+            const { data: ent } = await supabase.from('enterprises').select('name').eq('id', fullBranch.enterprise_id).single();
+            if (ent) this.profile.enterprise_name = ent.name;
         }
 
         return this.branch;
@@ -209,13 +218,14 @@ export const Auth = {
             if (data.role === 'enterprise_admin' && data.enterprise_id) {
                 const { data: entData, error: entError } = await supabase
                     .from('enterprises')
-                    .select('address, phone, email, currency')
+                    .select('name, address, phone, email, currency')
                     .eq('id', data.enterprise_id)
                     .single();
 
                 if (!entError && entData) {
                     this.profile = {
                         ...this.profile,
+                        enterprise_name: entData.name || '',
                         address: entData.address || '',
                         phone: entData.phone || '',
                         email: entData.email || '',
@@ -317,6 +327,9 @@ export const Auth = {
             .single();
 
         if (error) throw error;
+        if (this.profile && data?.name) {
+            this.profile.enterprise_name = data.name;
+        }
         return data;
     },
 

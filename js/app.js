@@ -1337,7 +1337,7 @@ const app = {
 
     getPaginationState(key) {
         if (!this.state.pagination[key]) {
-            this.state.pagination[key] = { page: 1, pageSize: 10 };
+            this.state.pagination[key] = { page: 1, pageSize: 5 };
         }
         return this.state.pagination[key];
     },
@@ -1347,7 +1347,7 @@ const app = {
         state.page = Math.max(1, page);
     },
 
-    paginateList(list, key, pageSize = 10) {
+    paginateList(list, key, pageSize = 5) {
         const state = this.getPaginationState(key);
         state.pageSize = pageSize;
         const totalItems = list.length;
@@ -1819,7 +1819,7 @@ const app = {
         };
     },
 
-    async fetchBranchSales(page = 1, pageSize = 10, startDate = null, endDate = null) {
+    async fetchBranchSales(page = 1, pageSize = 5, startDate = null, endDate = null) {
         try {
             const from = (page - 1) * pageSize;
             const to = from + pageSize - 1;
@@ -3563,98 +3563,101 @@ const app = {
             this.fetchBranchCategories(),
             this.fetchBranchProducts()
         ]);
-        const { items: pagedCategories, page: categoriesPage, totalPages: categoriesPages } = this.paginateList(categories, 'categories', 10);
-        const rows = pagedCategories.map(cat => {
+
+        const { items: pagedCategories, page: categoriesPage, totalPages: categoriesPages } = this.paginateList(categories, 'categories', 5);
+        const items = pagedCategories.map(cat => {
+            const catJson = encodeURIComponent(JSON.stringify(cat));
             const count = products.filter(p => p.categoryId === cat.id).length;
             return `
-                <tr>
-                    <td data-label="Category"><strong>${cat.name}</strong></td>
-                    <td data-label="Description">${cat.description || '-'}</td>
-                    <td data-label="Products">${count}</td>
-                    <td data-label="Actions" style="text-align: right;">
-                        <button class="btn-ghost" data-category-delete="${cat.id}">Delete</button>
-                    </td>
-                </tr>
+                <div class="item" data-category-id="${cat.id}" data-category="${catJson}">
+                    <input type="checkbox" class="checkbox-select categories-checkbox" value="${cat.id}" onchange="app.toggleSelect('categories', '${cat.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${cat.name}</div>
+                        <div class="item-subtitle">${cat.description || 'No description'} · ${count} products</div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost note-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost note-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
             `;
         }).join('');
 
         canvas.innerHTML = `
-            <div class="page-enter">
-
-
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 class="card-title">New Category</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-category-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
-                    </div>
-                    <div id="ops-category-body" class="hidden">
-                        <div id="ops-categories-message" class="message-box hidden"></div>
-                        <form id="ops-category-form" class="auth-form" style="max-width: 100%;">
+        <div class="page-enter">
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h4 class="card-title">New Category</h4>
+                    <button type="button" class="btn-ghost" data-collapse-target="ops-categories-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                </div>
+                <div id="ops-categories-body" class="hidden">
+                    <div id="ops-categories-message" class="message-box hidden"></div>
+                    <form id="ops-categories-form" class="auth-form" style="max-width: 100%;">
                         <div class="input-group">
                             <label>Category Name</label>
-                            <input type="text" id="category-name" placeholder="e.g. Beverages" required>
+                            <input type="text" id="category-name" placeholder="e.g. Electronics" required>
                         </div>
                         <div class="input-group">
                             <label>Description</label>
-                            <input type="text" id="category-desc" placeholder="Optional short description">
+                            <input type="text" id="category-description" placeholder="Optional">
                         </div>
                         <button type="submit" class="btn-primary" style="width: auto;">Add Category</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h4 class="card-title">Category List</h4>
-                    </div>
-                    ${categories.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No categories yet. Add your first one above.</div>
-                    ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Description</th>
-                                        <th>Products</th>
-                                        <th style="text-align: right;">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
-                        </div>
-                        ${this.renderPaginationControls('categories', categoriesPage, categoriesPages)}
-                    `}
+                    </form>
                 </div>
             </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="card-title">Categories</h4>
+                </div>
+                <div class="bulk-actions">
+                    <div class="bulk-actions-info">
+                        <input type="checkbox" id="selectAll_categories" onchange="app.toggleSelectAll('categories')" class="checkbox-select">
+                        <label for="selectAll_categories">Select All</label>
+                        <span id="categoriesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                    </div>
+                    <div class="bulk-actions-buttons">
+                        <button id="btnBulkDeleteCategories" class="btn-small btn-danger" onclick="app.bulkDelete('categories')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                    </div>
+                </div>
+                ${categories.length === 0 ? `
+                    <div class="text-muted" style="padding: 1rem;">No categories added yet.</div>
+                ` : `
+                    <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                        ${items}
+                    </div>
+                    ${this.renderPaginationControls('categories', categoriesPage, categoriesPages)}
+                `}
+            </div>
+        </div>
         `;
 
         setTimeout(() => {
             this.bindCollapseControls(canvas);
             this.bindPaginationControls(canvas, 'categories', categoriesPages, () => this.renderCategoriesModule(canvas));
-            const form = document.getElementById('ops-category-form');
+            const form = document.getElementById('ops-categories-form');
             if (form) {
                 form.addEventListener('submit', async (e) => {
                     e.preventDefault();
                     this.hideMessage('ops-categories-message');
                     const name = document.getElementById('category-name').value.trim();
-                    const description = document.getElementById('category-desc').value.trim();
+                    const description = document.getElementById('category-description').value.trim();
                     if (!name) {
                         this.showMessage('ops-categories-message', 'Category name is required.', 'error');
                         return;
                     }
-                    const exists = categories.some(c => c.name.toLowerCase() === name.toLowerCase());
-                    if (exists) {
-                        this.showMessage('ops-categories-message', 'Category already exists.', 'error');
-                        return;
-                    }
+
                     const submitBtn = form.querySelector('button[type="submit"]');
                     if (submitBtn) {
                         submitBtn.textContent = 'Saving...';
                         submitBtn.disabled = true;
                     }
+
                     try {
                         await this.createBranchCategory({ name, description });
                         this.showToast('Category added', 'success');
@@ -3671,26 +3674,30 @@ const app = {
                 });
             }
 
-            document.querySelectorAll('[data-category-delete]').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const id = btn.getAttribute('data-category-delete');
-                    const used = products.some(p => p.categoryId === id);
-                    if (used) {
-                        this.showToast('Remove products in this category first', 'error');
-                        return;
+            // Event Delegation for Category Actions
+            const categoriesList = canvas.querySelector('.items-list');
+            if (categoriesList) {
+                categoriesList.addEventListener('click', async (e) => {
+                    const btn = e.target.closest('.note-action-btn');
+                    if (!btn) return;
+                    e.stopPropagation();
+                    const row = btn.closest('.item');
+                    const catId = row.dataset.categoryId;
+                    const action = btn.dataset.action;
+
+                    if (action === 'delete') {
+                        this.showConfirmModal('Delete this category?', async () => {
+                            try {
+                                await this.deleteBranchCategory(catId);
+                                row.remove();
+                                this.showToast('Category deleted', 'success');
+                            } catch (err) {
+                                this.showToast('Error deleting category', 'error');
+                            }
+                        });
                     }
-                    this.promptPinVerification(async () => {
-                        try {
-                            await this.deleteBranchCategory(id);
-                            this.showToast('Category removed', 'info');
-                            this.renderCategoriesModule(canvas);
-                        } catch (error) {
-                            console.error('Failed to delete category:', error);
-                            this.showToast('Failed to delete category', 'error');
-                        }
-                    });
                 });
-            });
+            }
         }, 0);
     },
 
@@ -3706,6 +3713,7 @@ const app = {
             this.fetchBranchTags(),
             this.fetchAllItemTags('products')
         ]).then(([categories, products, tags, productTags]) => {
+            const { items: pagedProducts, page: productsPage, totalPages: productsPages } = this.paginateList(products, 'products', 5);
             // Filter by Tag if active
             if (this.state.productTagFilter) {
                 const tagId = this.state.productTagFilter;
@@ -3837,71 +3845,68 @@ const app = {
                             <button id="btnBulkDeleteProducts" class="btn-small btn-danger" onclick="app.bulkDelete('products')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
                             <button id="btnBulkTagProducts" class="btn-small btn-tag" onclick="app.bulkApplyTag('products')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                         </div>
-                        <div id="productsList" class="list-scroll-container">
-                            ${this.renderProductListItems(products, categories, tags, productTags)}
+                        <div id="productsList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${this.renderProductListItems(pagedProducts, categories, tags, productTags)}
                         </div>
-                         <div class="flex-gap" style="justify-content:center;margin:8px 0;flex-wrap:nowrap;">
-                            <button class="collapse-btn" onclick="app.showMoreList('products')" title="▼See more"><span class="collapse-icon ">▼</span><span>See more</span></button>
-                            <button class="collapse-btn" onclick="app.showAllList('products')" title="▼Show all"><span class="collapse-icon">▼</span><span>Show all</span></button>
-                        </div>
+                        ${this.renderPaginationControls('products', productsPage, productsPages)}
                     </div>
                 </div>
             `;
 
             // Re-apply states
             this.toggleInitialStock();
+            this.bindPaginationControls(canvas, 'products', productsPages, () => this.renderProductsModule(canvas));
         });
     },
 
 
     renderProductListItems(products, categories, tags = [], productTags = []) {
-        if (products.length === 0) return '<div class="text-muted p-4">No products found.</div>';
-        if (products.length === 0) return '<div class="text-muted p-4">No products found.</div>';
+        if (!products || products.length === 0) {
+            return `
+                <div class="text-center" style="padding: 2rem; color: var(--text-muted);">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🛍️</div>
+                    <p>No products found</p>
+                </div>`;
+        }
 
-        return products.slice().sort((a, b) => b.id - a.id).map(p => {
-            const category = categories.find(c => c.id === p.categoryId);
-            const catName = category ? category.name : 'Uncategorized';
-            const isService = p.itemType === 'service' || !p.stock;
-            const stockText = isService ? 'Service (no stock)' : `${p.stock} units`;
-            // Margin calc: ((Sell - Cost) / Sell) * 100
-            const marginVal = p.sellingPrice ? ((p.sellingPrice - (p.costPrice || 0)) / p.sellingPrice) * 100 : 0;
-            const margin = marginVal.toFixed(1);
-            const profit = (p.sellingPrice || 0) - (p.costPrice || 0);
-
-            // Find tags for this product
-            const pTags = productTags.filter(pt => pt.product_id === p.id);
-            const tagUnix = pTags.map(pt => {
-                const tagInfo = tags.find(t => t.name === pt.tag); // Matching by name as per schema discussion
-                return tagInfo ?
-                    `<span class="badge" style="background:${tagInfo.color}20; color:${tagInfo.color}; border:1px solid ${tagInfo.color}; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${tagInfo.name}</span>`
-                    : `<span class="badge" style="background:#eee; color:#333; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${pt.tag}</span>`;
-            }).join('');
+        return products.map(product => {
+            const productJson = encodeURIComponent(JSON.stringify(product));
+            const category = categories.find(c => c.id === product.categoryId);
+            const itemTags = productTags.filter(pt => pt.product_id === product.id);
+            const tagUnix = itemTags.map(t => {
+                const tag = tags.find(bt => bt.id === t.tag_id);
+                if (!tag) return '';
+                return `<span class="badge" style="background: ${tag.color || 'var(--primary)'}18; color: ${tag.color || 'var(--primary)'}; border: 1px solid ${tag.color || 'var(--primary)'}40;">${tag.name}</span>`;
+            }).filter(Boolean).join('');
 
             return `
-                <div class="item" data-product-id="${p.id}" data-search-term="${(p.name || '').toLowerCase()} ${(catName || '').toLowerCase()}">
-                    <div style="display: flex; gap: 12px; align-items: start;">
-                        <input type="checkbox" class="checkbox-select products-checkbox" value="${p.id}" onchange="app.toggleSelect('products', '${p.id}')">
-                        <div style="flex: 1;">
-                            <div class="item-title">${p.name}</div>
-                            <div class="item-subtitle">
-                                Category: ${catName} | ${stockText}<br>
-                                Margin: ${margin}%
-                                ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px;">
-                                <span>Cost: ${this.formatCurrency(p.costPrice || 0)}</span>
-                                <span>Price: ${this.formatCurrency(p.sellingPrice || 0)}</span>
-                                <span style="color: #2e7d32; font-weight: 600;">+${this.formatCurrency(profit)}</span>
-                            </div>
-                            <div class="flex-gap" style="margin-top:8px;">
-                                <button class="btn-small" onclick="app.showEditProductModal('${p.id}')" title="Edit ✏️">Edit ✏️</button>
-                                <button class="btn-small btn-danger btn-delete" data-action="delete" onclick="app.deleteProductIndex('${p.id}')" title="Delete">Delete</button>
-                                <button class="btn-small" style="background:#1f2937;color:#e5e7eb;border:1px solid #374151;" onclick="app.openItemTagsModal('products', '${p.id}')" title="📌 Tag">📌 Tag</button>
-                            </div>
+                <div class="item product-item" data-product-id="${product.id}" data-product="${productJson}">
+                    <input type="checkbox" class="checkbox-select products-checkbox" value="${product.id}" onchange="app.toggleSelect('products', '${product.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;" onclick="app.showEditProductModal('${product.id}')">
+                        <div class="item-title" style="display: flex; align-items: center; gap: 8px;">
+                            ${product.name}
+                            ${product.itemType === 'service' ? '<span style="font-size: 0.7rem; background: var(--bg-body); padding: 2px 6px; border-radius: 4px; color: var(--text-muted);">SERVICE</span>' : ''}
+                        </div>
+                        <div class="item-subtitle">
+                            ${this.formatCurrency(product.sellingPrice)} · ${category ? category.name : 'Uncategorized'}
+                            ${product.itemType === 'product' ? ` · Stock: <span style="font-weight: 600; color: ${product.stock <= (product.lowStock || 0) ? 'var(--danger)' : 'inherit'};">${product.stock} ${product.unit || ''}</span>` : ''}
                         </div>
                     </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost note-action-btn" onclick="app.showEditProductModal('${product.id}')" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <button class="btn-ghost note-action-btn" title="Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('products', '${product.id}')">
+                            <span>📌</span> Tag
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost note-action-btn" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);" onclick="app.showConfirmModal('Delete this product?', () => app.deleteBranchProduct('${product.id}').then(() => app.renderProductsModule(document.getElementById('ops-canvas'))))">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                    ${tagUnix ? `<div class="tags-scroll" style="margin-top: 6px;">${tagUnix}</div>` : ''}
                 </div>
-             `;
+            `;
         }).join('');
     },
 
@@ -4585,6 +4590,7 @@ const app = {
                     else if (type === 'expenses') await this.deleteBranchExpense(id);
                     else if (type === 'income') await this.deleteBranchRow('income', 'income', id);
                     else if (type === 'notes') await this.deleteBranchRow('notes', 'notes', id);
+                    else if (type === 'categories') await this.deleteBranchCategory(id);
 
                     successCount++;
                     this.state.activeSelection.delete(id);
@@ -5077,8 +5083,8 @@ const app = {
         ]).then(([products, categories, inventory]) => {
             const stockProducts = products.filter(p => (p.itemType || 'product') === 'product');
             const options = stockProducts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-            const { items: pagedMovements, page: movementsPage, totalPages: movementsPages } = this.paginateList(inventory, 'inventory-movements', 10);
-            const { items: pagedStock, page: stockPage, totalPages: stockPages } = this.paginateList(stockProducts, 'inventory-stock', 10);
+            const { items: pagedMovements, page: movementsPage, totalPages: movementsPages } = this.paginateList(inventory, 'inventory-movements', 5);
+            const { items: pagedStock, page: stockPage, totalPages: stockPages } = this.paginateList(stockProducts, 'inventory-stock', 5);
             const rows = pagedMovements.map(item => {
                 const product = products.find(p => p.id === item.productId);
                 const qty = item.type === 'in' ? `+${item.quantity}` : `-${item.quantity}`;
@@ -5526,7 +5532,7 @@ const app = {
 
         const state = this.getPaginationState('sales');
         const currentPage = state.page || 1;
-        const pageSize = 10;
+        const pageSize = 5;
 
         // Filter for "Recent Sales" list to show only today's sales
         const todayStart = new Date();
@@ -5565,19 +5571,17 @@ const app = {
                 const itemTags = saleTags.filter(t => t.sale_id === sale.id);
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid rgba(255,255,255,0.3);">${t.tag}</span>`).join('');
                 return `
-                <div class="sale-item" style="border-left: 4px solid ${color}; display: flex; gap: 12px; align-items: start;" data-sale-id="${sale.id}" data-sale="${saleJson}">
-                    <input type="checkbox" class="checkbox-select sales-checkbox" value="${sale.id}" onchange="app.toggleSelect('sales', '${sale.id}')" style="margin-top: 4px;">
-                    <div style="flex: 1;">
-                        <div class="sale-item-header">
+                <div class="sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}">
+                    <input type="checkbox" class="checkbox-select sales-checkbox" value="${sale.id}" onchange="app.toggleSelect('sales', '${sale.id}')" style="grid-row: span 3; align-self: start; margin-top: 5px;">
+                    <div class="sale-item-header" style="grid-column: 2;">
                         <span class="sale-item-title">
                             ${sale.productName || 'Unknown'}
                             ${tagUnix ? `<div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">${tagUnix}</div>` : ''}
                         </span>
                         <span class="sale-item-badge" style="background: ${profitColor}18; color: ${profitColor};">Profit: ${profitLabel}</span>
                     </div>
-                    <div class="sale-item-subtitle">
-                        ${sale.quantity} × ${this.formatCurrency(sale.price || 0)} · ${sale.categoryName || 'Uncategorized'}<br>
-                        ${sale.customerName || 'Walk-in'} · ${dateStr}, ${timeStr}
+                    <div class="sale-item-subtitle" style="grid-column: 2;">
+                        ${sale.quantity} × ${this.formatCurrency(sale.price || 0)} · ${sale.categoryName || 'Uncategorized'} · ${sale.customerName || 'Walk-in'} · ${dateStr}, ${timeStr}
                     </div>
                     <div class="sale-item-actions">
                         <button class="sale-action-btn sale-action-edit" data-action="edit" title="Edit">
@@ -5951,21 +5955,21 @@ const app = {
                             popup.innerHTML = `
                                 <div class="receipt-format-overlay"></div>
                                 <div class="receipt-format-dialog">
-                                    <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.75rem;text-align:center;">Download Receipt As</div>
-                                    <div style="display:flex;gap:0.75rem;">
-                                        <button class="btn-primary receipt-fmt-btn" data-fmt="img" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                    <div style="font-weight:700; font-size:1.1rem; margin-bottom:1rem; text-align:center; color:var(--text-main);">Download Receipt</div>
+                                    <div style="display:flex; gap:0.75rem;">
+                                        <button class="btn-primary receipt-fmt-btn" data-fmt="img" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                                             Image
                                         </button>
-                                        <button class="btn-primary receipt-fmt-btn" data-fmt="pdf" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:var(--accent,#ef4444);">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                                        <button class="btn-primary receipt-fmt-btn" data-fmt="pdf" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.5rem; background:var(--danger, #ef4444);">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                                             PDF
                                         </button>
                                     </div>
-                                    <div style="text-align:center;margin-top:1rem;margin-bottom:0.25rem;">
-                                        <a href="#" class="receipt-fmt-print" style="color:var(--text-main);text-decoration:none;font-size:0.9rem;border-bottom:1px solid currentColor;opacity:0.8;">Print Receipt</a>
+                                    <div style="text-align:center; margin-top:1.25rem; margin-bottom:0.5rem;">
+                                        <a href="#" class="receipt-fmt-print" style="color:var(--text-main); text-decoration:none; font-size:0.95rem; font-weight:600; border-bottom:2px solid var(--primary); padding-bottom:2px;">Print Receipt</a>
                                     </div>
-                                    <button class="btn-ghost receipt-fmt-cancel" style="width:100%;margin-top:0.5rem;font-size:0.8rem;">Cancel</button>
+                                    <button class="btn-ghost receipt-fmt-cancel" style="width:100%; margin-top:1rem; font-size:0.9rem; font-weight:500; color:var(--text-muted);">Cancel</button>
                                 </div>
                             `;
                             document.body.appendChild(popup);
@@ -6204,39 +6208,38 @@ const app = {
             this.fetchAllItemTags('expenses'),
             this.fetchBranchTags()
         ]).then(([expenses, expenseTags, branchTags]) => {
-            const { items: pagedExpenses, page: expensesPage, totalPages: expensesPages } = this.paginateList(expenses, 'expenses', 10);
+            const { items: pagedExpenses, page: expensesPage, totalPages: expensesPages } = this.paginateList(expenses, 'expenses', 5);
             const categories = this.getExpenseCategories();
             const quickAddVal = '__quick_add_expense_cat__';
             const categoryOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
-            const rows = pagedExpenses.map(expense => {
+            const items = pagedExpenses.map(expense => {
                 const expenseJson = encodeURIComponent(JSON.stringify(expense));
                 const itemTags = expenseTags.filter(t => t.expense_id === expense.id);
-                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
+                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
-                <tr class="expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
-                    <td><input type="checkbox" class="checkbox-select expenses-checkbox" value="${expense.id}" onchange="app.toggleSelect('expenses', '${expense.id}')"></td>
-                    <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">
-                        ${expense.title}
-                        ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
-                    </td>
-                    <td data-label="Category">${expense.category || '-'}</td>
-                    <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
-                    <td data-label="Note">${expense.note || '-'}</td>
-                    <td data-label="Actions">
-                         <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
-                            <button class="btn-ghost expense-action-btn" data-action="edit" title="Edit" style="padding:0.2rem 0.4rem;">
-                                <span>✏️</span>
-                            </button>
-                            <button class="btn-ghost expense-action-btn" data-action="tag" title="Tag" style="padding:0.2rem 0.4rem;" onclick="app.openItemTagsModal('expenses', '${expense.id}')">
-                                <span>📌</span>
-                            </button>
-                            <button class="btn-ghost expense-action-btn" data-action="delete" title="Delete" style="color:var(--danger);padding:0.2rem 0.4rem;">
-                                <span>🗑️</span>
-                            </button>
+                <div class="item expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
+                    <input type="checkbox" class="checkbox-select expenses-checkbox" value="${expense.id}" onchange="app.toggleSelect('expenses', '${expense.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${expense.title}</div>
+                        <div class="item-subtitle">
+                            ${this.formatCurrency(expense.amount || 0)} · ${expense.category || 'Uncategorized'} · ${new Date(expense.createdAt).toLocaleDateString()}
+                            ${expense.note ? ` · <span class="text-muted">${expense.note}</span>` : ''}
                         </div>
-                    </td>
-                </tr>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost expense-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <button class="btn-ghost expense-action-btn" data-action="tag" title="Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('expenses', '${expense.id}')">
+                            <span>📌</span> Tag
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost expense-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                    ${tagUnix ? `<div class="tags-scroll" style="margin-top: 6px;">${tagUnix}</div>` : ''}
+                </div>
             `;
             }).join('');
 
@@ -6306,23 +6309,8 @@ const app = {
                     ${expenses.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 40px;"></th>
-                                        <th>Date</th>
-                                        <th>Title</th>
-                                        <th>Category</th>
-                                        <th>Amount</th>
-                                        <th>Note</th>
-                                        <th style="text-align:right;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('expenses', expensesPage, expensesPages)}
                     `}
@@ -6451,9 +6439,9 @@ const app = {
                 }
 
                 // Event Delegation for Expense Actions
-                const tableContainer = canvas.querySelector('.table-container');
-                if (tableContainer) {
-                    tableContainer.addEventListener('click', async (e) => {
+                const itemsList = canvas.querySelector('.items-list');
+                if (itemsList) {
+                    itemsList.addEventListener('click', async (e) => {
                         const btn = e.target.closest('.expense-action-btn');
                         if (!btn) return;
 
@@ -6612,37 +6600,39 @@ const app = {
             this.fetchAllItemTags('income'),
             this.fetchBranchTags()
         ]).then(([incomeEntries, incomeTags, branchTags]) => {
-            const { items: pagedIncome, page: incomePage, totalPages: incomePages } = this.paginateList(incomeEntries, 'income', 10);
+            const { items: pagedIncome, page: incomePage, totalPages: incomePages } = this.paginateList(incomeEntries, 'income', 5);
             const sources = this.getIncomeSources();
             const quickAddVal = '__quick_add_income_src__';
             const sourceOptions = sources.map(s => `<option value="${s}">${s}</option>`).join('');
-            const rows = pagedIncome.map(entry => {
-                const itemTags = incomeTags.filter(t => t.income_id === entry.id);
-                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
-                const entryJson = encodeURIComponent(JSON.stringify(entry));
+            const items = pagedIncome.map(row => {
+                const rowJson = encodeURIComponent(JSON.stringify(row));
+                const itemTags = incomeTags.filter(t => t.income_id === row.id);
+                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
-                <tr class="income-item" data-income-id="${entry.id}" data-income="${entryJson}">
-                    <td><input type="checkbox" class="checkbox-select income-checkbox" value="${entry.id}" onchange="app.toggleSelect('income', '${entry.id}')"></td>
-                    <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">
-                        ${entry.title}
-                        ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
-                    </td>
-                    <td data-label="Source">${entry.source || '-'}</td>
-                    <td data-label="Amount">${this.formatCurrency(entry.amount || 0)}</td>
-                    <td data-label="Note">${entry.note || '-'}</td>
-                    <td data-label="Actions" style="text-align:right;">
-                        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
-                            <button class="btn-ghost" title="Tag" style="padding:0.2rem 0.4rem;" onclick="app.openItemTagsModal('income', '${entry.id}')">
-                                <span>📌</span>
+                    <div class="item income-item" data-income-id="${row.id}" data-income="${rowJson}">
+                        <input type="checkbox" class="checkbox-select income-checkbox" value="${row.id}" onchange="app.toggleSelect('income', '${row.id}')" style="margin-top: 8px;">
+                        <div class="note-preview" style="cursor: pointer;">
+                            <div class="item-title">${row.title}</div>
+                            <div class="item-subtitle">
+                                ${this.formatCurrency(row.amount || 0)} · ${row.source || 'Uncategorized'} · ${new Date(row.createdAt).toLocaleDateString()}
+                                ${row.note ? ` · <span class="text-muted">${row.note}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="note-actions">
+                            <button class="btn-ghost income-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                                <span>✏️</span> Edit
                             </button>
-                            <button class="btn-ghost" title="Delete" style="color:var(--danger);padding:0.2rem 0.4rem;" onclick="app.deleteBranchIncomeRow('${entry.id}')">
-                                <span>🗑️</span>
+                            <button class="btn-ghost income-action-btn" data-action="tag" title="Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('income', '${row.id}')">
+                                <span>📌</span> Tag
+                            </button>
+                            <div style="flex:1;"></div>
+                            <button class="btn-ghost income-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                                <span>🗑️</span> Delete
                             </button>
                         </div>
-                    </td>
-                </tr>
-            `;
+                        ${tagUnix ? `<div class="tags-scroll" style="margin-top: 6px;">${tagUnix}</div>` : ''}
+                    </div>
+                `;
             }).join('');
 
             canvas.innerHTML = `
@@ -6709,25 +6699,10 @@ const app = {
                         </div>
                     </div>
                     ${incomeEntries.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No income entries recorded yet.</div>
+                        <div class="text-muted" style="padding: 1rem;">No income records yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 40px;"></th>
-                                        <th>Date</th>
-                                        <th>Title</th>
-                                        <th>Source</th>
-                                        <th>Amount</th>
-                                        <th>Note</th>
-                                        <th style="text-align:right;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('income', incomePage, incomePages)}
                     `}
@@ -6855,6 +6830,40 @@ const app = {
                         }
                     });
                 }
+
+                // Event Delegation for Income Actions
+                const itemsList = canvas.querySelector('.items-list');
+                if (itemsList) {
+                    itemsList.addEventListener('click', async (e) => {
+                        const btn = e.target.closest('.income-action-btn');
+                        if (!btn) return;
+
+                        e.stopPropagation();
+                        const card = btn.closest('.income-item');
+                        if (!card) return;
+
+                        const incomeId = card.dataset.incomeId;
+                        const income = JSON.parse(decodeURIComponent(card.dataset.income));
+                        const action = btn.dataset.action;
+
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                try {
+                                    await this.deleteBranchIncome(incomeId);
+                                    card.remove();
+                                    this.showToast('Income deleted', 'success');
+                                } catch (error) {
+                                    console.error('Failed to delete income:', error);
+                                    this.showToast('Failed to delete income', 'error');
+                                }
+                            });
+                        }
+
+                        if (action === 'edit') {
+                            this.showEditIncomeModal(income, () => this.renderIncomeModule(canvas));
+                        }
+                    });
+                }
             }, 0);
         });
     },
@@ -6871,6 +6880,96 @@ const app = {
         }
     },
 
+    showEditIncomeModal(income, onSuccess) {
+        const existing = document.getElementById('edit-income-modal');
+        if (existing) existing.remove();
+
+        const sources = this.getIncomeSources();
+        const sourceOptions = sources.map(s => `<option value="${s}" ${s === income.source ? 'selected' : ''}>${s}</option>`).join('');
+
+        const modalHTML = `
+            <div id="edit-income-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 500px; width: 90%;">
+                    <div class="card-header">
+                        <h3 class="card-title">Edit Income</h3>
+                        <button class="btn-ghost close-modal-btn">&times;</button>
+                    </div>
+                    <div id="edit-income-message" class="message-box hidden"></div>
+                    <form id="edit-income-form" style="margin-top: 1rem;">
+                        <input type="hidden" id="edit-income-id" value="${income.id}">
+                        <div class="input-group">
+                            <label>Title</label>
+                            <input type="text" id="edit-income-title" value="${income.title}" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Source</label>
+                            <select id="edit-income-source" class="input-field" style="display:none;">
+                                <option value="" disabled>Select source</option>
+                                ${sourceOptions}
+                            </select>
+                            ${this.renderCustomDropdown('editIncomeSourceDropdown', sources.map(s => ({ value: s, label: s })), income.source, 'Select source', 'app.handleEditIncomeSourceChange')}
+                        </div>
+                        <div class="input-group">
+                            <label>Amount</label>
+                            <input type="number" id="edit-income-amount" value="${income.amount}" min="0" step="0.01" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Note</label>
+                            <input type="text" id="edit-income-note" value="${income.note || ''}" placeholder="Optional note">
+                        </div>
+                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('edit-income-modal');
+        const form = document.getElementById('edit-income-form');
+
+        const close = () => modal.remove();
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            this.hideMessage('edit-income-message');
+
+            const title = document.getElementById('edit-income-title').value.trim();
+            const source = document.getElementById('edit-income-source').value;
+            const amount = Number(document.getElementById('edit-income-amount').value);
+            const note = document.getElementById('edit-income-note').value.trim();
+
+            if (!title) {
+                this.showMessage('edit-income-message', 'Title is required', 'error');
+                return;
+            }
+            if (Number.isNaN(amount) || amount < 0) {
+                this.showMessage('edit-income-message', 'Amount must be valid', 'error');
+                return;
+            }
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Saving...';
+            submitBtn.disabled = true;
+
+            try {
+                await this.upsertBranchIncome({ ...income, title, source, amount, note });
+                this.showToast('Income updated', 'success');
+                close();
+                if (onSuccess) onSuccess();
+            } catch (error) {
+                console.error(error);
+                this.showMessage('edit-income-message', 'Failed to update income', 'error');
+                submitBtn.textContent = 'Save Changes';
+                submitBtn.disabled = false;
+            }
+        });
+    },
+
     renderNotesModule(canvas) {
         // Initialize selection state
         this.state.activeSelection = new Set();
@@ -6881,7 +6980,7 @@ const app = {
             this.fetchAllItemTags('notes'),
             this.fetchBranchTags()
         ]).then(([notes, noteTags, branchTags]) => {
-            const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 10);
+            const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 5);
 
             // New Card-based Layout
             const noteCards = pagedNotes.map(note => {
@@ -6891,29 +6990,25 @@ const app = {
                 const tagUnix = itemTags.map(t => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${t.tag}</span>`).join('');
 
                 return `
-                <div class="item" data-note-id="${note.id}" data-note="${noteJson}" style="display: flex; gap: 12px; align-items: start;">
+                <div class="item" data-note-id="${note.id}" data-note="${noteJson}">
                     <input type="checkbox" class="checkbox-select notes-checkbox" value="${note.id}" onchange="app.toggleSelect('notes', '${note.id}')" style="margin-top: 8px;">
-                    <div style="flex: 1;">
-                        <div class="note-preview" style="cursor: pointer;" title="Open note">
-                            <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
-                            <div class="item-subtitle" style="margin-bottom: 0;">${dateStr}</div>
-                        </div>
-                        <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
-                            <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
-                                <span style="margin-right: 4px;">✏️</span> Edit
-                            </button>
-                            <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('notes', '${note.id}')">
-                                <span style="margin-right: 4px;">📌</span> Tag
-                            </button>
-                            <div style="flex:1;"></div>
-                            <button class="btn-ghost note-action-btn" data-action="delete" title="Delete Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
-                                <span style="margin-right: 4px;">🗑️</span> Delete
-                            </button>
-                        </div>
-                        <div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">
-                            ${tagUnix}
-                        </div>
+                    <div class="note-preview" style="cursor: pointer;" title="Open note">
+                        <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
+                        <div class="item-subtitle" style="margin-bottom: 0;">${dateStr}</div>
                     </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span style="margin-right: 4px;">✏️</span> Edit
+                        </button>
+                        <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('notes', '${note.id}')">
+                            <span style="margin-right: 4px;">📌</span> Tag
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost note-action-btn" data-action="delete" title="Delete Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span style="margin-right: 4px;">🗑️</span> Delete
+                        </button>
+                    </div>
+                    ${tagUnix ? `<div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">${tagUnix}</div>` : ''}
                 </div>
                 `;
             }).join('');
@@ -7057,7 +7152,7 @@ const app = {
                                     card.remove();
                                     this.showToast('Note deleted', 'success');
                                     // Optional: Refresh if pagination needs update, or just remove from DOM
-                                    // this.renderNotesModule(canvas); 
+                                    // this.renderNotesModule(canvas);
                                 } catch (error) {
                                     console.error('Failed to delete note:', error);
                                     this.showToast('Failed to delete note', 'error');
@@ -7315,17 +7410,35 @@ const app = {
     },
 
     renderCustomersModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchCustomers().then((customers) => {
-            const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 10);
-            const rows = pagedCustomers.map(customer => `<tr class="customer-item" data-customer-id="${customer.id}">
-                    <td data-label="Name">${customer.name}</td>
-                    <td data-label="Phone">${customer.phone || '-'}</td>
-                    <td data-label="Email">${customer.email || '-'}</td>
-                    <td data-label="Address">${customer.address || '-'}</td>
-                </tr>
-    `).join('');
+            const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 5);
+            const items = pagedCustomers.map(customer => {
+                const customerJson = encodeURIComponent(JSON.stringify(customer));
+                return `
+                <div class="item customer-item" data-customer-id="${customer.id}" data-customer="${customerJson}">
+                    <input type="checkbox" class="checkbox-select customers-checkbox" value="${customer.id}" onchange="app.toggleSelect('customers', '${customer.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${customer.name}</div>
+                        <div class="item-subtitle">
+                            ${customer.phone || 'No phone'} · ${customer.email || 'No email'} · Bal: ${this.formatCurrency(customer.balance || 0)}
+                        </div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost customer-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost customer-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
 <div class="page-enter">
@@ -7361,26 +7474,24 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Customer List</h4>
+                    </div>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_customers" onchange="app.toggleSelectAll('customers')" class="checkbox-select">
+                            <label for="selectAll_customers">Select All</label>
+                            <span id="customersSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteCustomers" class="btn-small btn-danger" onclick="app.bulkDelete('customers')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
                     </div>
                     ${customers.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No customers added yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Phone</th>
-                                        <th>Email</th>
-                                        <th>Address</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('customers', customersPage, customersPages)}
                     `}
@@ -7426,25 +7537,154 @@ const app = {
                         }
                     });
                 }
+
+                // Event Delegation for Customer Actions
+                const itemsList = canvas.querySelector('.items-list');
+                if (itemsList) {
+                    itemsList.addEventListener('click', async (e) => {
+                        const btn = e.target.closest('.customer-action-btn');
+                        if (!btn) return;
+
+                        e.stopPropagation();
+                        const card = btn.closest('.customer-item');
+                        if (!card) return;
+
+                        const customerId = card.dataset.customerId;
+                        const customer = JSON.parse(decodeURIComponent(card.dataset.customer));
+                        const action = btn.dataset.action;
+
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                try {
+                                    await this.deleteBranchCustomer(customerId);
+                                    card.remove();
+                                    this.showToast('Customer deleted', 'success');
+                                } catch (error) {
+                                    console.error('Failed to delete customer:', error);
+                                    this.showToast('Failed to delete customer', 'error');
+                                }
+                            });
+                        }
+
+                        if (action === 'edit') {
+                            this.showEditCustomerModal(customer, () => this.renderCustomersModule(canvas));
+                        }
+                    });
+                }
             }, 0);
         });
     },
 
+    showEditCustomerModal(customer, onSuccess) {
+        const existing = document.getElementById('edit-customer-modal');
+        if (existing) existing.remove();
+
+        const modalHTML = `
+            <div id="edit-customer-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 500px; width: 90%;">
+                    <div class="card-header">
+                        <h3 class="card-title">Edit Customer</h3>
+                        <button class="btn-ghost close-modal-btn">&times;</button>
+                    </div>
+                    <div id="edit-customer-message" class="message-box hidden"></div>
+                    <form id="edit-customer-form" style="margin-top: 1rem;">
+                        <input type="hidden" id="edit-customer-id" value="${customer.id}">
+                        <div class="input-group">
+                            <label>Name</label>
+                            <input type="text" id="edit-customer-name" value="${customer.name}" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Phone</label>
+                            <input type="text" id="edit-customer-phone" value="${customer.phone || ''}">
+                        </div>
+                        <div class="input-group">
+                            <label>Email</label>
+                            <input type="email" id="edit-customer-email" value="${customer.email || ''}">
+                        </div>
+                        <div class="input-group">
+                            <label>Address</label>
+                            <input type="text" id="edit-customer-address" value="${customer.address || ''}">
+                        </div>
+                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('edit-customer-modal');
+        const form = document.getElementById('edit-customer-form');
+
+        const close = () => modal.remove();
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            this.hideMessage('edit-customer-message');
+
+            const name = document.getElementById('edit-customer-name').value.trim();
+            const phone = document.getElementById('edit-customer-phone').value.trim();
+            const email = document.getElementById('edit-customer-email').value.trim();
+            const address = document.getElementById('edit-customer-address').value.trim();
+
+            if (!name) {
+                this.showMessage('edit-customer-message', 'Name is required', 'error');
+                return;
+            }
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Saving...';
+            submitBtn.disabled = true;
+
+            try {
+                await this.upsertBranchCustomer({ ...customer, name, phone, email, address });
+                this.showToast('Customer updated', 'success');
+                close();
+                if (onSuccess) onSuccess();
+            } catch (error) {
+                console.error(error);
+                this.showMessage('edit-customer-message', 'Failed to update customer', 'error');
+                submitBtn.textContent = 'Save Changes';
+                submitBtn.disabled = false;
+            }
+        });
+    },
+
     renderInvoicesModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
-            const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 10);
-            const rows = pagedInvoices.map(inv => `
-<tr>
-                    <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
-                    <td data-label="Invoice">${inv.invoiceNumber}</td>
-                    <td data-label="Customer">${inv.customerName || '-'}</td>
-                    <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
-                    <td data-label="Status">${inv.status}</td>
-                </tr>
-    `).join('');
+            const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 5);
+            const items = pagedInvoices.map(invoice => {
+                const invoiceJson = encodeURIComponent(JSON.stringify(invoice));
+                return `
+                <div class="item invoice-item" data-invoice-id="${invoice.id}" data-invoice="${invoiceJson}">
+                    <input type="checkbox" class="checkbox-select invoices-checkbox" value="${invoice.id}" onchange="app.toggleSelect('invoices', '${invoice.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${invoice.customerName || 'Walk-in'} - ${this.formatCurrency(invoice.amount || 0)}</div>
+                        <div class="item-subtitle">
+                            #${invoice.invoiceNumber || 'N/A'} · ${invoice.status || 'Pending'} · ${new Date(invoice.createdAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost invoice-action-btn" data-action="view" title="View" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>👁️</span> View
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost invoice-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
 <div class="page-enter">
@@ -7493,27 +7733,24 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Invoices</h4>
                     </div>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_invoices" onchange="app.toggleSelectAll('invoices')" class="checkbox-select">
+                            <label for="selectAll_invoices">Select All</label>
+                            <span id="invoicesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteInvoices" class="btn-small btn-danger" onclick="app.bulkDelete('invoices')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
+                    </div>
                     ${invoices.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No invoices yet.</div>
+                        <div class="text-muted" style="padding: 1rem;">No invoices/receipts yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Invoice</th>
-                                        <th>Customer</th>
-                                        <th>Amount</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('invoices', invoicesPage, invoicesPages)}
                     `}
@@ -7572,15 +7809,98 @@ const app = {
                         }
                     });
                 }
+
+                // Event Delegation for Invoice Actions
+                const itemsList = canvas.querySelector('.items-list');
+                if (itemsList) {
+                    itemsList.addEventListener('click', async (e) => {
+                        const btn = e.target.closest('.invoice-action-btn');
+                        if (!btn) return;
+
+                        e.stopPropagation();
+                        const card = btn.closest('.invoice-item');
+                        if (!card) return;
+
+                        const invoiceId = card.dataset.invoiceId;
+                        const invoice = JSON.parse(decodeURIComponent(card.dataset.invoice));
+                        const action = btn.dataset.action;
+
+                        if (action === 'delete') {
+                            this.promptPinVerification(async () => {
+                                try {
+                                    await this.deleteBranchInvoice(invoiceId);
+                                    card.remove();
+                                    this.showToast('Invoice deleted', 'success');
+                                } catch (error) {
+                                    console.error('Failed to delete invoice:', error);
+                                    this.showToast('Failed to delete invoice', 'error');
+                                }
+                            });
+                        }
+
+                        if (action === 'view') {
+                            this.showInvoicePreviewModal(invoice, customers);
+                        }
+                    });
+                }
             }, 0);
         });
+    },
+
+    showInvoicePreviewModal(invoice, customers) {
+        const existing = document.getElementById('invoice-preview-modal');
+        if (existing) existing.remove();
+
+        const customer = customers.find(c => c.id === invoice.customerId);
+        const customerDetails = customer ? `
+            <p><strong>Customer:</strong> ${customer.name}</p>
+            ${customer.email ? `<p><strong>Email:</strong> ${customer.email}</p>` : ''}
+            ${customer.phone ? `<p><strong>Phone:</strong> ${customer.phone}</p>` : ''}
+            ${customer.address ? `<p><strong>Address:</strong> ${customer.address}</p>` : ''}
+        ` : '<p><strong>Customer:</strong> Walk-in</p>';
+
+        const modalHTML = `
+            <div id="invoice-preview-modal" class="modal-overlay">
+                <div class="modal-content" style="max-width: 700px; width: 90%;">
+                    <div class="card-header">
+                        <h3 class="card-title">Invoice #${invoice.invoiceNumber}</h3>
+                        <button class="btn-ghost close-modal-btn">&times;</button>
+                    </div>
+                    <div style="padding: 1.25rem;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                            <div>
+                                <p><strong>Date:</strong> ${new Date(invoice.createdAt).toLocaleDateString()}</p>
+                                <p><strong>Due Date:</strong> ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p><strong>Status:</strong> ${invoice.status}</p>
+                                <p><strong>Amount:</strong> ${this.formatCurrency(invoice.amount || 0)}</p>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            ${customerDetails}
+                        </div>
+                        <div style="margin-top: 1.5rem; text-align: right;">
+                            <button class="btn-primary close-modal-btn">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('invoice-preview-modal');
+
+        const close = () => modal.remove();
+        modal.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', close));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
     },
 
     renderReportsModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchReports().then((reports) => {
-            const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 10);
+            const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 5);
             const rows = pagedReports.map(report => `
 <tr>
                     <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
@@ -7700,16 +8020,30 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchLoans().then((loans) => {
-            const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 10);
-            const rows = pagedLoans.map(loan => `
-<tr>
-                    <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
-                    <td data-label="Borrower">${loan.borrower}</td>
-                    <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
-                    <td data-label="Status">${loan.status}</td>
-                    <td data-label="Due">${loan.dueDate || '-'}</td>
-                </tr>
-    `).join('');
+            const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 5);
+            const items = pagedLoans.map(loan => {
+                const loanJson = encodeURIComponent(JSON.stringify(loan));
+                return `
+                <div class="item loan-item" data-loan-id="${loan.id}" data-loan="${loanJson}">
+                    <input type="checkbox" class="checkbox-select loans-checkbox" value="${loan.id}" onchange="app.toggleSelect('loans', '${loan.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${loan.borrower} - ${this.formatCurrency(loan.amount || 0)}</div>
+                        <div class="item-subtitle">
+                           Due: ${loan.dueDate || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${loan.status}</span> · ${new Date(loan.createdAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost loan-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost loan-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
 <div class="page-enter">
@@ -7754,27 +8088,21 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
-                        <h4 class="card-title">Recent Loans</h4>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_loans" onchange="app.toggleSelectAll('loans')" class="checkbox-select">
+                            <label for="selectAll_loans">Select All</label>
+                            <span id="loansSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteLoans" class="btn-small btn-danger" onclick="app.bulkDelete('loans')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
                     </div>
                     ${loans.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No loans recorded yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Borrower</th>
-                                        <th>Amount</th>
-                                        <th>Status</th>
-                                        <th>Due</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                       <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('loans', loansPage, loansPages)}
                     `}
@@ -7834,14 +8162,30 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchAssets().then((assets) => {
-            const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 10);
-            const rows = pagedAssets.map(asset => `<tr>
-                    <td data-label="Name">${asset.name}</td>
-                    <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
-                    <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
-                    <td data-label="Condition">${asset.condition || '-'}</td>
-                </tr>
-    `).join('');
+            const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 5);
+            const items = pagedAssets.map(asset => {
+                const assetJson = encodeURIComponent(JSON.stringify(asset));
+                return `
+                <div class="item asset-item" data-asset-id="${asset.id}" data-asset="${assetJson}">
+                    <input type="checkbox" class="checkbox-select assets-checkbox" value="${asset.id}" onchange="app.toggleSelect('assets', '${asset.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${asset.name} - ${this.formatCurrency(asset.value || 0)}</div>
+                        <div class="item-subtitle">
+                           Purchased: ${asset.purchaseDate || 'N/A'} · Condition: ${asset.condition || 'N/A'}
+                        </div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost asset-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost asset-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
 <div class="page-enter">
@@ -7880,23 +8224,21 @@ const app = {
                     <div class="card-header">
                         <h4 class="card-title">Assets List</h4>
                     </div>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_assets" onchange="app.toggleSelectAll('assets')" class="checkbox-select">
+                            <label for="selectAll_assets">Select All</label>
+                            <span id="assetsSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteAssets" class="btn-small btn-danger" onclick="app.bulkDelete('assets')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
+                    </div>
                     ${assets.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No assets recorded yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Value</th>
-                                        <th>Purchased</th>
-                                        <th>Condition</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('assets', assetsPage, assetsPages)}
                     `}
@@ -7954,16 +8296,30 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         this.fetchBranchMaintenance().then((maintenance) => {
-            const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 10);
-            const rows = pagedMaintenance.map(entry => `
-<tr>
-                    <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">${entry.title}</td>
-                    <td data-label="Asset">${entry.asset || '-'}</td>
-                    <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
-                    <td data-label="Status">${entry.status}</td>
-                </tr>
-    `).join('');
+            const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 5);
+            const items = pagedMaintenance.map(entry => {
+                const entryJson = encodeURIComponent(JSON.stringify(entry));
+                return `
+                <div class="item maintenance-item" data-maintenance-id="${entry.id}" data-maintenance="${entryJson}">
+                    <input type="checkbox" class="checkbox-select maintenance-checkbox" value="${entry.id}" onchange="app.toggleSelect('maintenance', '${entry.id}')" style="margin-top: 8px;">
+                    <div class="note-preview" style="cursor: pointer;">
+                        <div class="item-title">${entry.title} - ${this.formatCurrency(entry.cost || 0)}</div>
+                        <div class="item-subtitle">
+                           Asset: ${entry.asset || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${entry.status}</span> · ${new Date(entry.createdAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    <div class="note-actions">
+                        <button class="btn-ghost maintenance-action-btn" data-action="edit" title="Edit" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                            <span>✏️</span> Edit
+                        </button>
+                        <div style="flex:1;"></div>
+                        <button class="btn-ghost maintenance-action-btn" data-action="delete" title="Delete" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                            <span>🗑️</span> Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             canvas.innerHTML = `
 <div class="page-enter">
@@ -8007,24 +8363,21 @@ const app = {
                     <div class="card-header">
                         <h4 class="card-title">Recent Maintenance</h4>
                     </div>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_maintenance" onchange="app.toggleSelectAll('maintenance')" class="checkbox-select">
+                            <label for="selectAll_maintenance">Select All</label>
+                            <span id="maintenanceSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteMaintenance" class="btn-small btn-danger" onclick="app.bulkDelete('maintenance')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
+                    </div>
                     ${maintenance.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No maintenance tasks yet.</div>
                     ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Title</th>
-                                        <th>Asset</th>
-                                        <th>Cost</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
+                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                            ${items}
                         </div>
                         ${this.renderPaginationControls('maintenance', maintenancePage, maintenancePages)}
                     `}
@@ -8082,7 +8435,6 @@ const app = {
         const icons = {
             sales: '💰', expenses: '💸', income: '📈', notes: '📝',
             inventory: '📦', products: '🛍️', workspace: '🛍️', customers: '👥', categories: '🏷️',
-            invoices: '🧾', reports: '📊', loans: '🏦', assets: '🏢',
             invoices: '🧾', reports: '📊', loans: '🏦', assets: '🏢',
             maintenance: '🔧'
         };
@@ -9002,6 +9354,20 @@ const app = {
 
         if (this.dom.userName) this.dom.userName.textContent = profile.full_name || 'User';
         if (this.dom.userRole) this.dom.userRole.textContent = profile.role === 'enterprise_admin' ? 'Enterprise Admin' : 'Branch Manager';
+
+        // Update Sidebar Header Branding (Replacement of BMS with Enterprise Name)
+        const sidebarHeader = this.dom.sidebar?.querySelector('.sidebar-header');
+        if (sidebarHeader) {
+            const h2 = sidebarHeader.querySelector('h2');
+            const entDisplay = sidebarHeader.querySelector('#ent-name-display');
+
+            if (h2 && profile.enterprise_name) {
+                h2.textContent = `⚡ ${profile.enterprise_name}`;
+            }
+            if (entDisplay) {
+                entDisplay.textContent = profile.branch_login_id ? `ID: ${profile.branch_login_id}` : 'Main Office';
+            }
+        }
 
         // Initial Routing based on URL or Default
         // Remove hash handling for now to simplify

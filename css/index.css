@@ -1314,16 +1314,16 @@ a:hover {
 
 .sale-item {
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border);
-    padding: 1rem;
+    border-bottom: 2px solid var(--border);
+    padding: 0.6rem 1rem;
     flex-shrink: 0;
     height: auto;
-    /* Let item define its own height */
     scroll-snap-align: start;
     box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 12px;
+    align-items: start;
     transition: background-color 0.2s ease;
 }
 
@@ -1406,7 +1406,7 @@ a:hover {
     justify-content: space-between;
     align-items: center;
     gap: 0.5rem;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
 }
 
 .sale-item-title {
@@ -1431,15 +1431,16 @@ a:hover {
 .sale-item-subtitle {
     font-size: 0.82rem;
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 .sale-item-actions {
+    grid-column: 2;
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
+    margin-top: 0.4rem;
+    padding-top: 0.4rem;
     border-top: 1px solid var(--border);
 }
 
@@ -1506,19 +1507,19 @@ a:hover {
 .receipt-format-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
 }
 
 .receipt-format-dialog {
     position: relative;
-    background: var(--card-bg, #1a1a2e);
-    border: 1px solid var(--border, #333);
-    border-radius: 1rem;
-    padding: 1.25rem 1.5rem;
-    min-width: 260px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 1.5rem;
+    min-width: 280px;
     max-width: 320px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-lg);
     animation: scaleIn 0.2s ease;
 }
 
@@ -1535,8 +1536,8 @@ a:hover {
 }
 
 .receipt-fmt-btn {
-    padding: 0.65rem 1rem;
-    border-radius: 0.6rem;
+    padding: 0.8rem 1rem;
+    border-radius: var(--radius-md);
     font-weight: 600;
     font-size: 0.85rem;
     cursor: pointer;
@@ -2278,7 +2279,7 @@ a:hover {
     background: var(--bg-card);
     padding: 2rem;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     max-width: 400px;
     width: 90%;
@@ -2336,7 +2337,7 @@ a:hover {
 
 .quick-link-card {
     background: var(--bg-surface);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius-xl);
     padding: 1.5rem;
     display: flex;
@@ -2369,4 +2370,37 @@ a:hover {
     font-weight: 600;
     font-size: 0.9rem;
     color: var(--text-main);
+}
+
+.item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 12px;
+    align-items: start;
+    padding: 0.75rem 1rem;
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    border: 2px solid var(--border);
+    transition: all 0.2s ease;
+}
+
+.item input[type="checkbox"] {
+    grid-row: span 4;
+}
+
+.note-preview {
+    grid-column: 2;
+}
+
+.note-actions {
+    grid-column: 2;
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+}
+
+.tags-scroll {
+    grid-column: 2;
 }

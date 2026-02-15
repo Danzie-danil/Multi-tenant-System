@@ -7,7 +7,7 @@
 .card {
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius-xl);
     padding: 2rem;
     transition: var(--transition-base);
@@ -61,7 +61,7 @@
 .table-container {
     overflow-x: auto;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
 }
 
 .data-table {
@@ -146,7 +146,7 @@
 
 .stat-card {
     background: var(--bg-surface);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     position: relative;
@@ -984,7 +984,7 @@
 
 .chart-card {
     background: var(--bg-surface);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     box-shadow: var(--shadow-md);
