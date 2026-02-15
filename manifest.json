@@ -1,6 +1,7 @@
 {
     "name": "BMS - Business Management System",
     "short_name": "BMS",
+    "version": "3.8",
     "description": "Enterprise Branch Management System - Manage your business branches efficiently",
     "start_url": "./",
     "display": "standalone",

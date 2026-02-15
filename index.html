@@ -493,6 +493,19 @@
         </div>
     </div>
 
+    <!-- Generic Modal Structure -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-container" class="modal-content">
+            <div class="card-header">
+                <h3 id="modal-title" class="card-title">Modal Title</h3>
+                <button class="btn-ghost" onclick="app.closeModal('modal-overlay')">×</button>
+            </div>
+            <div id="modal-content">
+                <!-- Dynamic Content -->
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script type="module" src="js/particles.js"></script>
@@ -502,14 +515,68 @@
 
     <!-- PWA Service Worker Registration -->
     <!-- PWA Service Worker (DISABLED FOR DEVELOPMENT) -->
+    <!-- PWA Service Worker Registration & Update Logic -->
     <script>
         if ('serviceWorker' in navigator) {
-            // Unregister any existing service workers to ensure live updates
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                for (let registration of registrations) {
-                    registration.unregister();
-                    console.log('ServiceWorker Unregistered for Development');
-                }
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then(registration => {
+                    console.log('ServiceWorker registered with scope:', registration.scope);
+
+                    // Check for updates every 15 minutes (optional, for long-running tabs)
+                    setInterval(() => {
+                        registration.update();
+                    }, 15 * 60 * 1000);
+
+                    // Listen for new worker waiting
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // New version available!
+                                showUpdateToast();
+                            }
+                        });
+                    });
+                }).catch(err => {
+                    console.log('ServiceWorker registration failed:', err);
+                });
+            });
+
+            // Handle controller change (when new SW takes over)
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
+        }
+
+        function showUpdateToast() {
+            // Use existing Dashboard toast or create a custom one
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-info';
+            toast.style.cssText = `
+                position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+                background: var(--bg-surface-elevated); border: 1px solid var(--accent);
+                padding: 1rem 1.5rem; border-radius: var(--radius-lg);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3); z-index: 9999;
+                display: flex; align-items: center; gap: 1rem;
+            `;
+            toast.innerHTML = `
+                <div>
+                    <strong style="color:var(--text-main)">Update Available</strong>
+                    <div style="font-size:0.85rem; color:var(--text-muted)">A new version is ready.</div>
+                </div>
+                <button id="update-refresh-btn" class="btn-primary" style="padding: 0.5rem 1rem;">Refresh</button>
+            `;
+            document.body.appendChild(toast);
+
+            document.getElementById('update-refresh-btn').addEventListener('click', () => {
+                // Skip waiting on new worker
+                navigator.serviceWorker.getRegistration().then(reg => {
+                    if (reg && reg.waiting) {
+                        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    } else {
+                        window.location.reload();
+                    }
+                });
             });
         }
     </script>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-bms-v37';
+const CACHE_NAME = 'nexus-bms-v38';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -27,7 +27,15 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             console.log('[Service Worker] Caching app shell');
-            return cache.addAll(ASSETS_TO_CACHE);
+            // Use {cache: 'reload'} to force network fetch and bypass browser cache
+            return Promise.all(
+                ASSETS_TO_CACHE.map(url =>
+                    fetch(url, { cache: 'reload' }).then(response => {
+                        if (!response.ok) throw Error('Fetch failed ' + response.statusText);
+                        return cache.put(url, response);
+                    })
+                )
+            );
         })
     );
 });
@@ -49,13 +57,14 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event - Network First, then Cache (Stale fallback)
 self.addEventListener('fetch', (event) => {
-    // Skip cross-origin requests
-    if (!event.request.url.startsWith(self.location.origin)) {
+    // Skip cross-origin and non-GET requests
+    if (!event.request.url.startsWith(self.location.origin) || event.request.method !== 'GET') {
         return;
     }
 
     event.respondWith(
-        fetch(event.request)
+        // Force network fetch to ensure we get the latest content
+        fetch(event.request, { cache: 'no-cache' })
             .then((response) => {
                 // If network fetch succeeds, update the cache and return
                 if (!response || response.status !== 200 || response.type !== 'basic') {
@@ -72,7 +81,13 @@ self.addEventListener('fetch', (event) => {
             .catch(() => {
                 // If network fails (offline), return from cache
                 console.log('[Service Worker] Network failed, serving from cache:', event.request.url);
-                return caches.match(event.request);
             })
     );
+});
+
+// Listen for SKIP_WAITING message to force activation
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
 });

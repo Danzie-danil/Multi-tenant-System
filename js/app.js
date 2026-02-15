@@ -16,6 +16,7 @@ const app = {
         theme: 'light',      // 'dark' | 'light'
         currentCurrency: 'TZS',
         activeModal: null,
+        activeOp: null,
         idb: null,
         idbReady: false,
         idbCache: {},
@@ -435,40 +436,39 @@ const app = {
         updateForm.classList.remove('hidden');
     },
 
-    showConfirmModal(message, onConfirm) {
+    showConfirmModal(message, onConfirm, options = {}) {
+        const {
+            title = 'Confirm Action',
+            confirmText = 'Proceed',
+            cancelText = 'Cancel',
+            type = 'info' // danger, info, warning
+        } = options;
+
         // Remove existing confirm modal if any
         document.querySelectorAll('.confirm-modal-popup').forEach(el => el.remove());
 
         const popup = document.createElement('div');
         popup.className = 'confirm-modal-popup';
+
+        let confirmBtnClass = 'btn-primary';
+        if (type === 'danger') confirmBtnClass = 'btn-danger';
+        else if (type === 'warning') confirmBtnClass = 'btn-warning';
+
         popup.innerHTML = `
             <div class="confirm-modal-overlay"></div>
             <div class="confirm-modal-dialog">
+                <div class="confirm-modal-title">
+                    <span>${type === 'danger' ? '⚠️' : type === 'warning' ? '🔔' : '❓'}</span>
+                    ${title}
+                </div>
                 <div class="confirm-modal-message">${message}</div>
                 <div class="confirm-modal-actions">
-                    <button class="btn-ghost confirm-modal-cancel">Cancel</button>
-                    <button class="btn-primary confirm-modal-confirm" style="background: var(--accent, #ef4444);">Delete</button>
+                    <button class="btn-ghost confirm-modal-cancel">${cancelText}</button>
+                    <button class="${confirmBtnClass} confirm-modal-confirm">${confirmText}</button>
                 </div>
             </div>
         `;
         document.body.appendChild(popup);
-
-        // Styles for the modal (dynamically added if keyframe verify fails, but simple check)
-        if (!document.getElementById('confirm-modal-styles')) {
-            const style = document.createElement('style');
-            style.id = 'confirm-modal-styles';
-            style.textContent = `
-                .confirm-modal-popup { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; isolation: isolate; }
-                .confirm-modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); z-index: -1; animation: fadeIn 0.2s ease-out; }
-                .confirm-modal-dialog { background: var(--bg-card, #fff); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 1rem; width: 90%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform-origin: center bottom; }
-                .confirm-modal-message { font-size: 1.1rem; color: var(--text-main); margin-bottom: 1.5rem; text-align: center; font-weight: 500; }
-                .confirm-modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
-                .confirm-modal-actions button { flex: 1; justify-content: center; }
-                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-                @keyframes slideUp { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-            `;
-            document.head.appendChild(style);
-        }
 
         const close = () => popup.remove();
 
@@ -477,6 +477,30 @@ const app = {
         popup.querySelector('.confirm-modal-confirm').addEventListener('click', () => {
             close();
             if (onConfirm) onConfirm();
+        });
+    },
+
+    /**
+     * Promise-based wrapper for showConfirmModal.
+     * Allows using await app.confirmAsync('Message') instead of confirm().
+     */
+    confirmAsync(message, type = 'info', title = 'Confirm') {
+        return new Promise((resolve) => {
+            this.showConfirmModal(message, () => resolve(true), {
+                type,
+                title,
+                confirmText: type === 'danger' ? 'Delete' : 'Confirm'
+            });
+
+            const popups = document.querySelectorAll('.confirm-modal-popup');
+            const latest = popups[popups.length - 1];
+            if (latest) {
+                const cancelBtn = latest.querySelector('.confirm-modal-cancel');
+                const overlay = latest.querySelector('.confirm-modal-overlay');
+                const handleCancel = () => resolve(false);
+                cancelBtn?.addEventListener('click', handleCancel);
+                overlay?.addEventListener('click', handleCancel);
+            }
         });
     },
 
@@ -872,6 +896,13 @@ const app = {
             });
         });
 
+        // Click outside to close generic modal
+        document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
+            if (e.target.id === 'modal-overlay') {
+                this.closeModal('modal-overlay');
+            }
+        });
+
         // Copy Buttons
         document.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1031,7 +1062,7 @@ const app = {
                 // If it's a jump or unknown, we just load the page. 
                 // Ideally we should rebuild history but for simple back/forward this is enough.
 
-                this.loadPage(newPage, false, true, true); // skipInternal=true, skipBrowser=true
+                this.loadPage(newPage, false, true, true, event.state.op); // skipInternal=true, skipBrowser=true
             } else {
                 // Handle null state (e.g. back to initial entry point)
                 // Default to home or check URL
@@ -1089,6 +1120,7 @@ const app = {
         branch: [
             { id: 'home', icon: '◈', label: 'Home' },
             { id: 'operations', icon: '⚡', label: 'Operations' },
+            { id: 'organize', icon: '📂', label: 'Organize' },
             { id: 'profile', icon: '👤', label: 'Profile' }
         ]
     },
@@ -1362,6 +1394,102 @@ const app = {
         return true;
     },
 
+    async fetchBranchProductTags(productId) {
+        const { data, error } = await supabase
+            .from('product_tags')
+            .select('*')
+            .eq('product_id', productId);
+        if (error) {
+            console.error('Error fetching tags:', error);
+            return [];
+        }
+        return data || [];
+    },
+
+    async fetchAllBranchProductTags() {
+        const { data, error } = await supabase
+            .from('product_tags')
+            .select('*');
+        if (error) {
+            console.error('Error fetching all product tags:', error);
+            return [];
+        }
+        return data || [];
+    },
+
+    async addBranchProductTag(productId, tag) {
+        const profile = this.state.currentProfile;
+        const { data, error } = await supabase
+            .from('product_tags')
+            .insert({
+                branch_id: profile?.branch_id || profile?.id,
+                product_id: productId,
+                tag: tag
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    async removeBranchProductTag(tagId) {
+        const { error } = await supabase
+            .from('product_tags')
+            .delete()
+            .eq('id', tagId);
+        if (error) throw error;
+        return true;
+    },
+
+    async fetchBranchTags() {
+        const { data, error } = await supabase
+            .from('branch_tags')
+            .select('*')
+            .order('name', { ascending: true });
+        if (error) {
+            console.error('Error fetching branch tags:', error);
+            return [];
+        }
+        return data || [];
+    },
+
+    async createBranchTag(tagData) {
+        const profile = this.state.currentProfile;
+        const { data, error } = await supabase
+            .from('branch_tags')
+            .insert({
+                branch_id: profile?.branch_id || profile?.id,
+                name: tagData.name,
+                color: tagData.color || '#10b981',
+                type: tagData.type || 'general'
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    async deleteBranchTag(tagId) {
+        const { error } = await supabase
+            .from('branch_tags')
+            .delete()
+            .eq('id', tagId);
+        if (error) throw error;
+        return true;
+    },
+
+    async updateBranchTag(tagId, updates) {
+        const { data, error } = await supabase
+            .from('branch_tags')
+            .update(updates)
+            .eq('id', tagId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+
     async fetchBranchRows(table, storageKey, mapper) {
         try {
             const { data, error } = await supabase
@@ -1439,6 +1567,82 @@ const app = {
         return this.fetchBranchRows('categories', 'categories', (row) => this.mapCategoryFromDb(row));
     },
 
+    /**
+     * Renders a custom searchable dropdown
+     * @param {string} id - Unique ID for the dropdown container
+     * @param {Array<{value:string, label:string, dataset?:object}>} options - Array of options
+     * @param {string} selectedValue - Currently selected value
+     * @param {string} placeholder - Placeholder text
+     * @param {string} onSelectFn - Name of global function to call on select (e.g. 'app.handleCatChange')
+     */
+    renderCustomDropdown(id, options, selectedValue, placeholder, onSelectFn) {
+        const selectedOption = options.find(o => o.value === selectedValue);
+        const displayText = selectedOption ? selectedOption.label : placeholder;
+
+        const optionsHtml = options.map(opt => {
+            const isActive = opt.value === selectedValue ? 'active' : '';
+            const dataAttrs = opt.dataset ? Object.entries(opt.dataset).map(([k, v]) => `data-${k}="${v}"`).join(' ') : '';
+            // Escape single quotes in label for onclick
+            const safeLabel = opt.label.replace(/'/g, "\\'");
+            return `
+                <div class="dropdown-option ${isActive}" 
+                     data-value="${opt.value}" 
+                     ${dataAttrs}
+                     onclick="app.selectDropdownOption('${id}', '${opt.value}', '${safeLabel}')">
+                    ${opt.label}
+                </div>
+            `;
+        }).join('');
+
+        // Store the callback function name in a data attribute on the container
+        // to be retrieved by selectDropdownOption
+        return `
+            <div class="searchable-dropdown" id="${id}" data-on-change="${onSelectFn || ''}">
+                <div class="dropdown-display" onclick="app.toggleDropdown('${id}')">
+                    <span id="${id}-text">${displayText}</span>
+                    <span class="dropdown-chevron">
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    </span>
+                </div>
+                <div class="dropdown-panel hidden">
+                    <input class="dropdown-search" placeholder="Search..." oninput="app.filterDropdown(this)" onclick="event.stopPropagation()">
+                    <div class="dropdown-options">
+                        ${optionsHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    refreshCustomDropdownOptions(id, options, selectedValue, placeholder) {
+        const dropdown = document.getElementById(id);
+        if (!dropdown) return;
+        const optionsContainer = dropdown.querySelector('.dropdown-options');
+        if (!optionsContainer) return;
+
+        const optionsHtml = options.map(opt => {
+            const isActive = opt.value === selectedValue ? 'active' : '';
+            const dataAttrs = opt.dataset ? Object.entries(opt.dataset).map(([k, v]) => `data-${k}="${v}"`).join(' ') : '';
+            const safeLabel = opt.label.replace(/'/g, "\\'");
+            return `
+                <div class="dropdown-option ${isActive}" 
+                     data-value="${opt.value}" 
+                     ${dataAttrs}
+                     onclick="app.selectDropdownOption('${id}', '${opt.value}', '${safeLabel}')">
+                    ${opt.label}
+                </div>
+            `;
+        }).join('');
+        optionsContainer.innerHTML = optionsHtml;
+
+        const displaySpan = document.getElementById(`${id}-text`);
+        if (displaySpan) {
+            const selectedOption = options.find(o => o.value === selectedValue);
+            displaySpan.textContent = selectedOption ? selectedOption.label : placeholder;
+        }
+    },
+
+
     createBranchCategory(category) {
         return this.createBranchRow('categories', 'categories', this.mapCategoryToDb(category), (row) => this.mapCategoryFromDb(row));
     },
@@ -1505,7 +1709,8 @@ const app = {
             customerId: row.customer_id,
             customerName: row.customer_name || '',
             note: row.note || '',
-            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            tags: row.tags || [] // Expecting tags string array if joined or manually added
         };
     },
 
@@ -1578,7 +1783,8 @@ const app = {
             category: row.category || '',
             amount: Number(row.amount || 0),
             note: row.note || '',
-            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            tags: row.tags || []
         };
     },
 
@@ -1617,7 +1823,8 @@ const app = {
             source: row.source || '',
             amount: Number(row.amount || 0),
             note: row.note || '',
-            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            tags: row.tags || []
         };
     },
 
@@ -1654,7 +1861,8 @@ const app = {
             id: row.id,
             title: row.title,
             details: row.details || '',
-            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            tags: row.tags || []
         };
     },
 
@@ -2021,7 +2229,7 @@ const app = {
         });
     },
 
-    loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false) {
+    loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false, op = null) {
         const profile = this.state.currentProfile;
         const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
 
@@ -2041,18 +2249,27 @@ const app = {
         // Browser History Integration
         if (!skipBrowserPush) {
             const urlPage = this.toRoleUrlPage(rolePrefix, page);
-            const url = `?page=${urlPage}`;
-            // Avoid pushing duplicate state if we're already ON this page (e.g. initial load)
-            if (!window.history.state || window.history.state.page !== page) {
-                window.history.pushState({ page: page }, '', url);
+            let url = `?page=${urlPage}`;
+            if (op) url += `&op=${op}`;
+
+            const stateObj = { page: page };
+            if (op) stateObj.op = op;
+
+            // Avoid pushing duplicate state if we're already ON this page + op
+            const lastState = window.history.state;
+            const isDuplicate = lastState && lastState.page === page && lastState.op === op;
+
+            if (!isDuplicate) {
+                window.history.pushState(stateObj, '', url);
             } else {
-                window.history.replaceState({ page: page }, '', url); // Ensure URL is correct
+                window.history.replaceState(stateObj, '', url); // Ensure URL is correct
             }
         }
         if (!skipHistory) {
+            const historyEntry = op ? `${page}:${op}` : page;
             if (isTopLevel) {
                 // Reset History for Top Level Navigation
-                this.state.history = [page];
+                this.state.history = [historyEntry];
                 this.state.historyIndex = 0;
             } else {
                 // Inner Navigation - Add to History
@@ -2060,7 +2277,7 @@ const app = {
                 if (this.state.historyIndex < this.state.history.length - 1) {
                     this.state.history = this.state.history.slice(0, this.state.historyIndex + 1);
                 }
-                this.state.history.push(page);
+                this.state.history.push(historyEntry);
                 this.state.historyIndex++;
             }
         }
@@ -2108,7 +2325,10 @@ const app = {
         } else if (page === 'analytics') {
             this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Analytics Module</h3><p class="text-muted">Coming Soon...</p></div>`;
         } else if (page === 'operations') {
+            this.state.activeOp = op;
             this.renderOperations();
+        } else if (page === 'organize') {
+            this.renderOrganizeModule(this.dom.contentArea);
         }
 
         // Run font resizing after content is likely rendered
@@ -2121,7 +2341,7 @@ const app = {
 
         // Dock Items Definition
         this.dockItems = [
-            { id: 'sales', icon: '💰', label: 'Sales', active: true },
+            { id: 'sales', icon: '💰', label: 'Sales' },
             { id: 'expenses', icon: '💸', label: 'Expenses' },
             { id: 'income', icon: '📈', label: 'Income' },
             { id: 'notes', icon: '📝', label: 'Notes' },
@@ -2134,18 +2354,31 @@ const app = {
             { id: 'loans', icon: '🏦', label: 'Loans' },
             { id: 'assets', icon: '🏢', label: 'Assets' },
             { id: 'maintenance', icon: '🔧', label: 'Maint.' }
-        ];
+        ].map(item => ({ ...item, active: item.id === (this.state.activeOp || 'sales' && !this.state.activeOp ? 'sales' : this.state.activeOp) }));
+        // Default to sales active if no activeOp but we strictly follow activeOp now.
+        // If we want it to stay 'Select an Operation' on first load, we can leave it null.
+        // User said "if i was on the products module", implying they already selected something.
 
-        // Main Container
+        if (this.state.activeOp) {
+            this.dockItems.forEach(item => item.active = item.id === this.state.activeOp);
+        } else {
+            // First time landing on operations - no activeOp? 
+            // We can leave it as is (showing 'Select an Operation')
+        }
+
+        // Main Container — show recent activity feed
         this.dom.contentArea.innerHTML = `
             <div id="ops-canvas" class="action-canvas page-enter">
-                <div style="text-align: center; margin-top: 10%;">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">⚡</div>
-                    <h3>Select an Operation</h3>
-                    <p class="text-muted">Choose a tool from the dock below to get started.</p>
+                <div style="margin-top: 1rem;">
+                    <h3 style="margin-bottom: 0.25rem;">⚡ Operations</h3>
+                    <p class="text-muted" style="margin-bottom: 1.25rem;">Recent activity across your modules.</p>
+                    <div id="ops-recent-feed">${this.getLoaderHTML()}</div>
                 </div>
             </div>
         `;
+
+        // Load recent feed asynchronously
+        this.loadRecentActivityFeed();
 
         // Render Dock Container (empty initially)
         // Ensure old dock is removed first
@@ -2157,6 +2390,10 @@ const app = {
 
         // Initial Render
         this.renderDockItems();
+
+        if (this.state.activeOp) {
+            this.setActiveOp(this.state.activeOp, document.getElementById('ops-canvas'));
+        }
 
         // Bind Resize Listener for Dynamic Dock
         // Debounce resize to avoid excessive calculations
@@ -2176,6 +2413,301 @@ const app = {
         window.addEventListener('resize', this.state.dockResizeListener);
 
         this.bindDockEvents();
+    },
+
+    async loadRecentActivityFeed() {
+        const feed = document.getElementById('ops-recent-feed');
+        if (!feed) return;
+
+        try {
+            // Fetch recent items from multiple tables in parallel
+            const [salesRes, expensesRes, incomeRes, notesRes] = await Promise.all([
+                supabase.from('sales').select('id, created_at, product_name, total').order('created_at', { ascending: false }).limit(5),
+                supabase.from('expenses').select('id, created_at, title, amount').order('created_at', { ascending: false }).limit(5),
+                supabase.from('income').select('id, created_at, source, amount').order('created_at', { ascending: false }).limit(5),
+                supabase.from('notes').select('id, created_at, title').order('created_at', { ascending: false }).limit(5)
+            ]);
+
+            // Normalize into a unified format
+            const items = [];
+
+            (salesRes.data || []).forEach(r => items.push({
+                module: 'sales', icon: '💰', label: 'Sale',
+                desc: r.product_name || 'Sale',
+                detail: r.total ? this.formatCurrency(r.total) : '',
+                date: r.created_at
+            }));
+
+            (expensesRes.data || []).forEach(r => items.push({
+                module: 'expenses', icon: '💸', label: 'Expense',
+                desc: r.title || 'Expense',
+                detail: r.amount ? this.formatCurrency(r.amount) : '',
+                date: r.created_at
+            }));
+
+            (incomeRes.data || []).forEach(r => items.push({
+                module: 'income', icon: '📈', label: 'Income',
+                desc: r.source || 'Income',
+                detail: r.amount ? this.formatCurrency(r.amount) : '',
+                date: r.created_at
+            }));
+
+            (notesRes.data || []).forEach(r => items.push({
+                module: 'notes', icon: '📝', label: 'Note',
+                desc: r.title || 'Untitled Note',
+                detail: '',
+                date: r.created_at
+            }));
+
+            // Sort by date descending, take top 15
+            items.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const recent = items.slice(0, 15);
+
+            if (recent.length === 0) {
+                feed.innerHTML = `
+                    <div style="text-align:center; padding: 3rem 1rem;">
+                        <div style="font-size:2.5rem; margin-bottom:0.75rem;">📭</div>
+                        <p class="text-muted">No recent activity yet. Choose a module from the dock below to get started.</p>
+                    </div>`;
+                return;
+            }
+
+            const timeAgo = (dateStr) => {
+                const diff = Date.now() - new Date(dateStr).getTime();
+                const mins = Math.floor(diff / 60000);
+                if (mins < 1) return 'Just now';
+                if (mins < 60) return `${mins}m ago`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) return `${hrs}h ago`;
+                const days = Math.floor(hrs / 24);
+                if (days < 7) return `${days}d ago`;
+                return new Date(dateStr).toLocaleDateString();
+            };
+
+            feed.innerHTML = `
+                <div class="recent-activity-list">
+                    ${recent.map(item => `
+                        <div class="recent-activity-item" data-module="${item.module}" onclick="app.setActiveOp('${item.module}', document.getElementById('ops-canvas'))">
+                            <div class="recent-activity-icon">${item.icon}</div>
+                            <div class="recent-activity-info">
+                                <div class="recent-activity-desc">${item.desc}</div>
+                                <div class="recent-activity-meta">
+                                    <span class="recent-activity-badge">${item.label}</span>
+                                    <span>${timeAgo(item.date)}</span>
+                                </div>
+                            </div>
+                            ${item.detail ? `<div class="recent-activity-amount">${item.detail}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>`;
+
+        } catch (err) {
+            console.error('Failed to load recent activity:', err);
+            feed.innerHTML = `
+                <div style="text-align:center; padding: 2rem;">
+                    <p class="text-muted">Choose a module from the dock below to get started.</p>
+                </div>`;
+        }
+    },
+
+    renderOrganizeModule(canvas) {
+        canvas.innerHTML = this.getLoaderHTML();
+        this.fetchBranchTags().then(tags => {
+            // Color palette — pick the first color not already used by existing tags
+            const palette = [
+                '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+                '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#06b6d4',
+                '#84cc16', '#e11d48'
+            ];
+            const usedColors = new Set(tags.map(t => t.color?.toLowerCase()));
+            const nextColor = palette.find(c => !usedColors.has(c)) || palette[tags.length % palette.length];
+
+            const tagsListHtml = tags.length === 0 ?
+                `<div class="text-muted" style="text-align:center; padding: 1rem;">No tags created yet.</div>` :
+                `<div class="tags-scroll-row">
+                    ${tags.map(tag => `
+                        <span class="btn-tag tag-clickable" 
+                              data-tag-id="${tag.id}" 
+                              data-tag-name="${tag.name}" 
+                              data-tag-color="${tag.color}"
+                              style="background-color:${tag.color}20; color:${tag.color}; border-color:${tag.color}; cursor:pointer;"
+                              title="Click to edit">
+                            ${tag.name}
+                        </span>
+                    `).join('')}
+                </div>`;
+
+            canvas.innerHTML = `
+            <div class="page-enter">
+                <div class="flex-between" style="margin-bottom: 1.5rem;">
+                    <div>
+                        <h3>Organize</h3>
+                        <p class="text-muted">Manage tags, categories, and business settings.</p>
+                    </div>
+                </div>
+
+                <div class="organize-list">
+                    <!-- Tags -->
+                    <div class="organize-item card" data-organize="tags">
+                        <div class="organize-item-header" onclick="app.toggleOrganizeItem('tags')">
+                            <div class="flex-gap" style="align-items:center; gap:0.75rem;">
+                                <span style="font-size:1.25rem;">🏷️</span>
+                                <div>
+                                    <h4 style="margin:0; font-weight:600;">Tags</h4>
+                                    <p class="text-muted" style="margin:0; font-size:0.8rem;">${tags.length} tag${tags.length !== 1 ? 's' : ''}</p>
+                                </div>
+                            </div>
+                            <span class="organize-chevron">›</span>
+                        </div>
+                        <div class="organize-item-body">
+                            <form id="org-create-tag-form" class="flex-gap" style="flex-wrap:wrap; align-items:end; padding: 1rem 0; border-bottom: 1px solid var(--border);">
+                                <div class="form-group" style="flex:1; min-width:180px; margin-bottom:0;">
+                                    <label>Tag Name</label>
+                                    <input type="text" id="new-tag-name" placeholder="e.g. Urgent, Sales" required>
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label>Color</label>
+                                    <input type="color" id="new-tag-color" value="${nextColor}" style="height:42px; width:60px; padding:0; border-radius:var(--radius-sm);">
+                                </div>
+                                <button type="submit" class="btn-primary">+ Add</button>
+                            </form>
+                            <div style="margin-top: 0.75rem;">
+                                ${tagsListHtml}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Future items go here as more .organize-item cards -->
+                </div>
+            </div>
+        `;
+
+            // Bind create form
+            const form = document.getElementById('org-create-tag-form');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('new-tag-name').value.trim();
+                const color = document.getElementById('new-tag-color').value;
+                if (!name) return;
+
+                try {
+                    await this.createBranchTag({ name, color });
+                    this.showToast('Tag created', 'success');
+                    this.renderOrganizeModule(canvas);
+                } catch (err) {
+                    console.error(err);
+                    this.showToast('Failed to create tag', 'error');
+                }
+            });
+
+            // Bind tag click → edit modal
+            canvas.querySelectorAll('.tag-clickable').forEach(tag => {
+                tag.addEventListener('click', () => {
+                    this.showEditTagModal({
+                        id: tag.dataset.tagId,
+                        name: tag.dataset.tagName,
+                        color: tag.dataset.tagColor
+                    }, canvas);
+                });
+            });
+
+        });
+    },
+
+    showEditTagModal(tag, canvas) {
+        // Remove existing modal if any
+        document.getElementById('edit-tag-modal')?.remove();
+
+        const modalHTML = `
+            <div id="edit-tag-modal" class="confirm-modal-popup">
+                <div class="confirm-modal-overlay"></div>
+                <div class="confirm-modal-dialog" style="max-width: 380px;">
+                    <div class="confirm-modal-title">
+                        <span>🏷️</span> Edit Tag
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:1rem; margin-bottom:1.5rem;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>Tag Name</label>
+                            <input type="text" id="edit-tag-name" value="${tag.name}" required>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>Color</label>
+                            <div class="flex-gap" style="align-items:center; gap:0.75rem;">
+                                <input type="color" id="edit-tag-color" value="${tag.color}" style="height:42px; width:60px; padding:0; border-radius:var(--radius-sm);">
+                                <span class="btn-tag" id="edit-tag-preview" style="background-color:${tag.color}20; color:${tag.color}; border-color:${tag.color};">
+                                    ${tag.name}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="confirm-modal-actions" style="gap:0.5rem;">
+                        <button class="btn-danger" id="edit-tag-delete-btn" style="flex:0.6;">🗑️ Delete</button>
+                        <button class="btn-ghost" id="edit-tag-cancel-btn" style="flex:0.6;">Cancel</button>
+                        <button class="btn-primary" id="edit-tag-save-btn" style="flex:1;">Save</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('edit-tag-modal');
+
+        // Live preview
+        const nameInput = document.getElementById('edit-tag-name');
+        const colorInput = document.getElementById('edit-tag-color');
+        const preview = document.getElementById('edit-tag-preview');
+        const updatePreview = () => {
+            const c = colorInput.value;
+            const n = nameInput.value || tag.name;
+            preview.style.backgroundColor = c + '20';
+            preview.style.color = c;
+            preview.style.borderColor = c;
+            preview.textContent = n;
+        };
+        nameInput.addEventListener('input', updatePreview);
+        colorInput.addEventListener('input', updatePreview);
+
+        const close = () => modal.remove();
+
+        // Close handlers
+        modal.querySelector('.confirm-modal-overlay').addEventListener('click', close);
+        document.getElementById('edit-tag-cancel-btn').addEventListener('click', close);
+
+        // Save
+        document.getElementById('edit-tag-save-btn').addEventListener('click', async () => {
+            const newName = nameInput.value.trim();
+            const newColor = colorInput.value;
+            if (!newName) return;
+            try {
+                await this.updateBranchTag(tag.id, { name: newName, color: newColor });
+                this.showToast('Tag updated', 'success');
+                close();
+                this.renderOrganizeModule(canvas);
+            } catch (err) {
+                console.error(err);
+                this.showToast('Failed to update tag', 'error');
+            }
+        });
+
+        // Delete
+        document.getElementById('edit-tag-delete-btn').addEventListener('click', async () => {
+            if (await this.confirmAsync('Are you sure you want to delete this tag? This cannot be undone.', 'danger', 'Delete Tag')) {
+                try {
+                    await this.deleteBranchTag(tag.id);
+                    this.showToast('Tag deleted', 'success');
+                    close();
+                    this.renderOrganizeModule(canvas);
+                } catch (err) {
+                    console.error(err);
+                    this.showToast('Failed to delete tag', 'error');
+                }
+            }
+        });
+    },
+
+    toggleOrganizeItem(itemId) {
+        const item = document.querySelector(`.organize-item[data-organize="${itemId}"]`);
+        if (!item) return;
+        item.classList.toggle('expanded');
     },
 
     renderDockItems() {
@@ -2270,21 +2802,14 @@ const app = {
 
             // 1. Main Dock Items
             if (item) {
-                this.setActiveOp(item.dataset.op, canvas);
-                // Visual Update
-                document.querySelectorAll('.dock-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
+                this.loadPage('operations', false, false, false, item.dataset.op);
             }
 
             // 2. More Menu Items
             if (moreItem) {
                 e.stopPropagation();
-                this.setActiveOp(moreItem.dataset.op, canvas);
+                this.loadPage('operations', false, false, false, moreItem.dataset.op);
                 if (menu) menu.classList.remove('open');
-                // Visual Update for Parent 'Menu' Item?
-                document.querySelectorAll('.dock-item').forEach(i => i.classList.remove('active'));
-                const menuParent = document.getElementById('dock-more-btn');
-                if (menuParent) menuParent.classList.add('active');
             }
 
             // 3. Toggle Menu
@@ -2544,291 +3069,1104 @@ const app = {
     },
 
     renderProductsModule(canvas) {
+        // Initialize selection state
+        this.state.selectedProducts = new Set();
+
         canvas.innerHTML = this.getLoaderHTML();
 
-        Promise.all([this.fetchBranchCategories(), this.fetchBranchProducts()]).then(([categories, products]) => {
-            const options = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
-            const { items: pagedProducts, page: productsPage, totalPages: productsPages } = this.paginateList(products, 'products', 10);
-            const rows = pagedProducts.map(product => {
-                const category = categories.find(c => c.id === product.categoryId);
-                const itemType = product.itemType || 'product';
-                const stockValue = itemType === 'service' ? '-' : (product.stock ?? 0);
-                const lowStockValue = itemType === 'service' ? '-' : (product.lowStock ?? '-');
-                return `
-                    <tr>
-                        <td data-label="Product"><strong>${product.name}</strong></td>
-                        <td data-label="Category">${category ? category.name : '-'}</td>
-                        <td data-label="Type">${itemType}</td>
-                        <td data-label="Cost">${this.formatCurrency(product.costPrice || 0)}</td>
-                        <td data-label="Selling">${this.formatCurrency(product.sellingPrice || 0)}</td>
-                        <td data-label="Stock">${stockValue}</td>
-                        <td data-label="Low Stock">${lowStockValue}</td>
-                        <td data-label="Actions" style="text-align: right;">
-                            <button class="btn-ghost" data-product-delete="${product.id}">Delete</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+        Promise.all([
+            this.fetchBranchCategories(),
+            this.fetchBranchProducts(),
+            this.fetchBranchTags(),
+            this.fetchAllItemTags('products')
+        ]).then(([categories, products, tags, productTags]) => {
+            // Filter by Tag if active
+            if (this.state.productTagFilter) {
+                const tagId = this.state.productTagFilter;
+                const selectedTag = tags.find(t => t.id === tagId);
+                if (selectedTag) {
+                    const tagName = selectedTag.name;
+                    const productIds = new Set(productTags.filter(pt => pt.tag === tagName).map(pt => pt.product_id));
+                    products = products.filter(p => productIds.has(p.id));
+                }
+            }
+            const categoryOptions = [
+                { value: '', label: '-- Select Category --' },
+                { value: 'new', label: '+ Add New Category', dataset: { new: 'true' } },
+                ...categories.map(cat => ({ value: cat.id, label: cat.name }))
+            ];
+
+            const itemTypeOptions = [
+                { value: 'yes', label: 'Product (has stock)' },
+                { value: 'no', label: 'Service (no stock)' }
+            ];
+
+            const invPeriodOptions = [
+                { value: '', label: 'Latest or create new' }
+            ];
 
             canvas.innerHTML = `
                 <div class="page-enter">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <div>
-                            <h3>Products</h3>
-                            <div class="text-muted" style="font-size: 0.85rem;">Create and manage your product catalog</div>
-                        </div>
-                    </div>
-
-                    <div class="card" style="margin-bottom: 1.5rem;">
-                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                            <h4 class="card-title">New Product</h4>
-                            <button type="button" class="btn-ghost" data-collapse-target="ops-product-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
-                        </div>
-                        <div id="ops-product-body" class="hidden">
-                            <div id="ops-products-message" class="message-box hidden"></div>
-                            <form id="ops-product-form" class="auth-form" style="max-width: 100%;">
-                            <div class="input-group">
-                                <label>Product Name</label>
-                                <input type="text" id="product-name" placeholder="e.g. Cola 500ml" required>
+                     <div class="card">
+                        <div class="flex-between">
+                            <div class="flex-gap" style="align-items:center;">
+                            <h2>Add Product/Service</h2>
+                            <button class="btn-small" onclick="app.openUnifiedProductsStockImportModal()" title="Import Products + Stock (CSV)">Import Products + Stock (CSV)</button>
                             </div>
-                            <div class="input-group">
+                        </div>
+                        <div class="flex-gap" style="justify-content:flex-end;margin-top:6px;">
+                            <button class="quick-nav-btn back" onclick="app.loadPage('sales')" title="← Sales">← Sales</button>
+                        </div>
+                        <form onsubmit="app.handleAddProduct(event)">
+                            <div class="form-group">
                                 <label>Item Type</label>
-                                <select id="product-type" class="input-field">
-                                    <option value="product" selected>Product</option>
-                                    <option value="service">Service</option>
+                                <!-- Hidden select for form submission reference -->
+                                <select id="productHasStock" style="display:none;">
+                                    <option value="yes" selected>Product</option>
+                                    <option value="no">Service</option>
                                 </select>
+                                ${this.renderCustomDropdown('typeSearchDropdown', itemTypeOptions, 'yes', 'Product (has stock)', 'app.handleItemTypeChange')}
                             </div>
-                            <div class="input-group">
+                            <div class="form-group">
                                 <label>Category</label>
-                                <select id="product-category" class="input-field">
-                                    <option value="" disabled selected>${categories.length === 0 ? 'Add or create category' : 'Select category'}</option>
-                                    ${options}
-                                    <option value="__new__">+ Create new category</option>
+                                <select id="productCategory" required="" style="display: none;">
+                                    <option value="">-- Select Category --</option>
                                 </select>
+                                ${this.renderCustomDropdown('categorySearchDropdown', categoryOptions, '', '-- Select Category --', 'app.handleCategoryChange')}
                             </div>
-                            <div id="product-new-category" class="hidden" style="display: grid; gap: 1rem;">
-                                <div class="input-group">
-                                    <label>New Category Name</label>
-                                    <input type="text" id="product-new-category-name" placeholder="e.g. Beverages">
+                            <div class="form-group" id="newCategoryFields" style="display:none;">
+                                <label>New Category Name</label>
+                                <input type="text" id="newCategoryName" placeholder="Enter new category name">
+                            </div>
+                            <div class="form-group">
+                                <label>Sale Unit</label>
+                                <input type="text" id="productSaleUnit" placeholder="Describe sale unit (e.g., piece, bottle)">
+                            </div>
+                            <div class="form-group">
+                                <label>Purchase Unit</label>
+                                <input type="text" id="productPurchaseUnit" placeholder="Describe purchase unit (e.g., carton, pack)">
+                            </div>
+                            <div class="form-group">
+                                <label>Units per Purchase</label>
+                                <input type="number" id="productUnitsPerPurchase" placeholder="Units per purchase (e.g., 24)" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label>Item Name</label>
+                                <input type="text" id="productName" placeholder="Enter item name" required="">
+                            </div>
+                            <div class="form-group">
+                                <label>Cost (Capital)</label>
+                                <input type="number" id="productCost" class="money-input" placeholder="0" required="" min="0" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label>Price (Selling)</label>
+                                <input type="number" id="productPrice" class="money-input" placeholder="0" required="" min="0" step="0.01">
+                            </div>
+                            <div class="form-group" id="initialStockGroup">
+                                <label>Initial Stock</label>
+                                <input type="number" id="productStock" class="money-input" placeholder="0" value="0" min="0">
+                            </div>
+                            <div class="form-group" id="productInventoryLinkGroup">
+                                <label>Link to Inventory Period</label>
+                                <div class="flex-gap" style="flex-wrap:wrap;align-items:end;gap:8px;">
+                                     <!-- Hidden select -->
+                                    <select id="productInvPeriodSelect" style="display:none;">
+                                        <option value="">Latest</option>
+                                    </select>
+                                    <div style="min-width:200px; flex:1;">
+                                        ${this.renderCustomDropdown('invPeriodDropdown', invPeriodOptions, '', 'Latest or create new', 'app.handleInvPeriodChange')}
+                                    </div>
+                                    <label style="font-size:12px; color:#666;">
+                                        <input type="checkbox" id="productInvCreateNewPeriod"> Create New Period
+                                    </label>
+                                    <input type="text" id="productInvNewPeriodTitle" placeholder="New Period Title" style="min-width:220px;">
                                 </div>
-                                <div class="input-group">
-                                    <label>New Category Description</label>
-                                    <input type="text" id="product-new-category-desc" placeholder="Optional short description">
-                                </div>
                             </div>
-                            <div class="input-group">
-                                <label>Cost Price</label>
-                                <input type="number" id="product-cost" min="0" step="0.01" placeholder="0.00" required>
-                            </div>
-                            <div class="input-group">
-                                <label>Selling Price</label>
-                                <input type="number" id="product-selling" min="0" step="0.01" placeholder="0.00" required>
-                            </div>
-                            <div class="input-group">
-                                <label>Unit</label>
-                                <input type="text" id="product-unit" placeholder="e.g. bottle, pack">
-                            </div>
-                            <div class="input-group" id="product-stock-group">
-                                <label>Opening Stock</label>
-                                <input type="number" id="product-stock" min="0" step="1" placeholder="0">
-                            </div>
-                            <div class="input-group" id="product-low-group">
-                                <label>Low Stock Alert</label>
-                                <input type="number" id="product-low" min="0" step="1" placeholder="5" value="5">
-                            </div>
-                            <button type="submit" class="btn-primary" style="width: auto;">Add Product</button>
-                            </form>
-                        </div>
+                            <button type="submit" class="btn-primary" title="Add Product">Add Product</button>
+                        </form>
                     </div>
 
                     <div class="card">
-                        <div class="card-header">
-                            <h4 class="card-title">Product List</h4>
+                        <h2>All Items (${products.length})</h2>
+                        <div class="search-box">
+                            <input type="search" placeholder="🔍 Search items..." oninput="app.searchProducts(this.value); app.toggleClearButton('productSearchBottom', 'productClearBtnBottom')" id="productSearchBottom" autocomplete="off">
+                            <button id="productClearBtnBottom" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearProductSearch()" title="Clear">Clear</button>
                         </div>
-                        ${products.length === 0 ? `
-                            <div class="text-muted" style="padding: 1rem;">No products yet. Add your first product above.</div>
-                        ` : `
-                            <div class="table-container">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Name</th>
-                                            <th>Category</th>
-                                            <th>Type</th>
-                                            <th>Cost</th>
-                                            <th>Selling</th>
-                                            <th>Stock</th>
-                                            <th>Low Stock</th>
-                                            <th style="text-align: right;">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${rows}
-                                    </tbody>
-                                </table>
+                        <div style="margin-bottom:8px;">
+                            <div class="tags-scroll" style="touch-action: pan-x;">
+                                <button class="btn-small btn-tag ${!this.state.productTagFilter ? 'active' : ''}" onclick="app.toggleTagFilter('products', null)">All</button>
+                                ${tags.map(tag => `
+                                    <button class="btn-small btn-tag ${this.state.productTagFilter === tag.id ? 'active' : ''}" 
+                                            onclick="app.toggleTagFilter('products', '${tag.id}')"
+                                            style="border-color:${tag.color}; color:${this.state.productTagFilter === tag.id ? '#fff' : tag.color}; background-color:${this.state.productTagFilter === tag.id ? tag.color : 'transparent'};">
+                                        ${tag.name}
+                                    </button>
+                                `).join('')}
                             </div>
-                            ${this.renderPaginationControls('products', productsPage, productsPages)}
-                        `}
+                        </div>
+                        <div class="bulk-actions">
+                            <input type="checkbox" id="selectAll_products" onchange="app.toggleSelectAll('products')" class="checkbox-select">
+                            <label for="selectAll_products">Select All</label>
+                            <span id="productsSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
+                            <button id="btnBulkDeleteProducts" class="btn-small btn-danger" onclick="app.bulkDelete('products')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                            <button id="btnBulkTagProducts" class="btn-small btn-tag" onclick="app.bulkApplyTag('products')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                        </div>
+                        <div id="productsList" class="list-scroll-container">
+                            ${this.renderProductListItems(products, categories, tags, productTags)}
+                        </div>
+                         <div class="flex-gap" style="justify-content:center;margin:8px 0;flex-wrap:nowrap;">
+                            <button class="collapse-btn" onclick="app.showMoreList('products')" title="▼See more"><span class="collapse-icon ">▼</span><span>See more</span></button>
+                            <button class="collapse-btn" onclick="app.showAllList('products')" title="▼Show all"><span class="collapse-icon">▼</span><span>Show all</span></button>
+                        </div>
                     </div>
                 </div>
             `;
 
-            setTimeout(() => {
-                this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'products', productsPages, () => this.renderProductsModule(canvas));
-                const typeSelect = document.getElementById('product-type');
-                const categorySelect = document.getElementById('product-category');
-                const newCategoryWrap = document.getElementById('product-new-category');
-                const stockGroup = document.getElementById('product-stock-group');
-                const lowGroup = document.getElementById('product-low-group');
-                const applyTypeState = () => {
-                    const typeValue = typeSelect ? typeSelect.value : 'product';
-                    const isService = typeValue === 'service';
-                    if (stockGroup) stockGroup.style.display = isService ? 'none' : '';
-                    if (lowGroup) lowGroup.style.display = isService ? 'none' : '';
-                };
-                if (typeSelect) {
-                    applyTypeState();
-                    typeSelect.addEventListener('change', applyTypeState);
-                }
-
-                const applyCategoryState = () => {
-                    if (!newCategoryWrap || !categorySelect) return;
-                    if (categorySelect.value === '__new__') {
-                        newCategoryWrap.classList.remove('hidden');
-                    } else {
-                        newCategoryWrap.classList.add('hidden');
-                    }
-                };
-                if (categorySelect) {
-                    applyCategoryState();
-                    categorySelect.addEventListener('change', applyCategoryState);
-                }
-
-                const form = document.getElementById('ops-product-form');
-                if (form) {
-                    form.addEventListener('submit', async (e) => {
-                        e.preventDefault();
-                        this.hideMessage('ops-products-message');
-                        const name = document.getElementById('product-name').value.trim();
-                        const categoryId = document.getElementById('product-category').value;
-                        const itemType = document.getElementById('product-type').value;
-                        const costPrice = Number(document.getElementById('product-cost').value);
-                        const sellingPrice = Number(document.getElementById('product-selling').value);
-                        const unit = document.getElementById('product-unit').value.trim();
-                        const stockValue = document.getElementById('product-stock').value;
-                        const lowValue = document.getElementById('product-low').value;
-                        const stock = itemType === 'service' ? null : Number(stockValue || 0);
-                        const lowStock = itemType === 'service' ? null : Number(lowValue || 5);
-
-                        if (!name) {
-                            this.showMessage('ops-products-message', 'Product name is required.', 'error');
-                            return;
-                        }
-                        let finalCategoryId = categoryId;
-
-                        if (!categoryId) {
-                            this.showMessage('ops-products-message', 'Select a category first.', 'error');
-                            return;
-                        }
-
-                        if (categoryId === '__new__') {
-                            const newCategoryName = document.getElementById('product-new-category-name').value.trim();
-                            const newCategoryDesc = document.getElementById('product-new-category-desc').value.trim();
-                            if (!newCategoryName) {
-                                this.showMessage('ops-products-message', 'Enter a new category name.', 'error');
-                                return;
-                            }
-                            const exists = categories.some(c => c.name.toLowerCase() === newCategoryName.toLowerCase());
-                            if (exists) {
-                                this.showMessage('ops-products-message', 'Category already exists.', 'error');
-                                return;
-                            }
-                            try {
-                                const createdCategory = await this.createBranchCategory({ name: newCategoryName, description: newCategoryDesc });
-                                finalCategoryId = createdCategory.id;
-                            } catch (error) {
-                                console.error('Failed to save category:', error);
-                                this.showMessage('ops-products-message', error.message || 'Failed to save category.', 'error');
-                                return;
-                            }
-                        }
-                        if (!itemType) {
-                            this.showMessage('ops-products-message', 'Select an item type.', 'error');
-                            return;
-                        }
-                        if (Number.isNaN(costPrice) || costPrice < 0) {
-                            this.showMessage('ops-products-message', 'Cost price must be 0 or more.', 'error');
-                            return;
-                        }
-                        if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
-                            this.showMessage('ops-products-message', 'Selling price must be 0 or more.', 'error');
-                            return;
-                        }
-                        if (itemType === 'product') {
-                            if (Number.isNaN(stock) || stock < 0) {
-                                this.showMessage('ops-products-message', 'Opening stock must be 0 or more.', 'error');
-                                return;
-                            }
-                            if (Number.isNaN(lowStock) || lowStock < 0) {
-                                this.showMessage('ops-products-message', 'Low stock must be 0 or more.', 'error');
-                                return;
-                            }
-                        }
-
-                        const submitBtn = form.querySelector('button[type="submit"]');
-                        if (submitBtn) {
-                            submitBtn.textContent = 'Saving...';
-                            submitBtn.disabled = true;
-                        }
-
-                        try {
-                            const newProduct = {
-                                name,
-                                itemType,
-                                categoryId: finalCategoryId,
-                                costPrice,
-                                sellingPrice,
-                                unit,
-                                stock,
-                                lowStock: itemType === 'product' ? lowStock : null
-                            };
-                            await this.createBranchProduct(newProduct);
-                            this.showToast('Product added', 'success');
-                            this.renderProductsModule(canvas);
-                        } catch (error) {
-                            console.error('Failed to save product:', error);
-                            this.showMessage('ops-products-message', error.message || 'Failed to save product.', 'error');
-                        } finally {
-                            if (submitBtn) {
-                                submitBtn.textContent = 'Add Product';
-                                submitBtn.disabled = false;
-                            }
-                        }
-                    });
-                }
-
-                document.querySelectorAll('[data-product-delete]').forEach(btn => {
-                    btn.addEventListener('click', async () => {
-                        const id = btn.getAttribute('data-product-delete');
-                        this.promptPinVerification(async () => {
-                            try {
-                                await this.deleteBranchProduct(id);
-                                const inventory = this.readBranchData('inventory', []);
-                                const updatedInventory = inventory.filter(i => i.productId !== id);
-                                this.writeBranchData('inventory', updatedInventory);
-                                this.showToast('Product removed', 'info');
-                                this.renderProductsModule(canvas);
-                            } catch (error) {
-                                console.error('Failed to delete product:', error);
-                                this.showToast('Failed to delete product', 'error');
-                            }
-                        });
-                    });
-                });
-            }, 0);
+            // Re-apply states
+            this.toggleInitialStock();
         });
     },
+
+
+    renderProductListItems(products, categories, tags = [], productTags = []) {
+        if (products.length === 0) return '<div class="text-muted p-4">No products found.</div>';
+        if (products.length === 0) return '<div class="text-muted p-4">No products found.</div>';
+
+        return products.slice().sort((a, b) => b.id - a.id).map(p => {
+            const category = categories.find(c => c.id === p.categoryId);
+            const catName = category ? category.name : 'Uncategorized';
+            const isService = p.itemType === 'service' || !p.stock;
+            const stockText = isService ? 'Service (no stock)' : `${p.stock} units`;
+            // Margin calc: ((Sell - Cost) / Sell) * 100
+            const marginVal = p.sellingPrice ? ((p.sellingPrice - (p.costPrice || 0)) / p.sellingPrice) * 100 : 0;
+            const margin = marginVal.toFixed(1);
+            const profit = (p.sellingPrice || 0) - (p.costPrice || 0);
+
+            // Find tags for this product
+            const pTags = productTags.filter(pt => pt.product_id === p.id);
+            const tagUnix = pTags.map(pt => {
+                const tagInfo = tags.find(t => t.name === pt.tag); // Matching by name as per schema discussion
+                return tagInfo ?
+                    `<span class="badge" style="background:${tagInfo.color}20; color:${tagInfo.color}; border:1px solid ${tagInfo.color}; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${tagInfo.name}</span>`
+                    : `<span class="badge" style="background:#eee; color:#333; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${pt.tag}</span>`;
+            }).join('');
+
+            return `
+                <div class="item" data-product-id="${p.id}" data-search-term="${(p.name || '').toLowerCase()} ${(catName || '').toLowerCase()}">
+                    <div style="display: flex; gap: 12px; align-items: start;">
+                        <input type="checkbox" class="checkbox-select product-checkbox" value="${p.id}" onchange="app.toggleSelect('products', '${p.id}')">
+                        <div style="flex: 1;">
+                            <div class="item-title">${p.name}</div>
+                            <div class="item-subtitle">
+                                Category: ${catName} | ${stockText}<br>
+                                Margin: ${margin}%
+                                ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px;">
+                                <span>Cost: ${this.formatCurrency(p.costPrice || 0)}</span>
+                                <span>Price: ${this.formatCurrency(p.sellingPrice || 0)}</span>
+                                <span style="color: #2e7d32; font-weight: 600;">+${this.formatCurrency(profit)}</span>
+                            </div>
+                            <div class="flex-gap" style="margin-top:8px;">
+                                <button class="btn-small" onclick="app.showEditProductModal('${p.id}')" title="Edit ✏️">Edit ✏️</button>
+                                <button class="btn-small btn-danger btn-delete" data-action="delete" onclick="app.deleteProductIndex('${p.id}')" title="Delete">Delete</button>
+                                <button class="btn-small" style="background:#1f2937;color:#e5e7eb;border:1px solid #374151;" onclick="app.openItemTagsModal('products', '${p.id}')" title="📌 Tag">📌 Tag</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+             `;
+        }).join('');
+    },
+
+    toggleInitialStock() {
+        const typeSelect = document.getElementById('productHasStock');
+        if (!typeSelect) return;
+        const isService = typeSelect.value === 'no';
+        const stockGroup = document.getElementById('initialStockGroup');
+        if (stockGroup) stockGroup.style.display = isService ? 'none' : 'block';
+    },
+
+    toggleNewProductCategory() {
+        const catSelect = document.getElementById('productCategory');
+        const newCatGroup = document.getElementById('newCategoryFields');
+        if (catSelect && newCatGroup) {
+            newCatGroup.style.display = catSelect.value === 'new' ? 'block' : 'none';
+        }
+    },
+
+    openUnifiedProductsStockImportModal() {
+        this.showToast('Import functionality coming soon', 'info');
+    },
+
+    toggleDropdown(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const panel = el.querySelector('.dropdown-panel');
+        if (panel) panel.classList.toggle('hidden');
+
+        // Close other dropdowns if any (optional)
+        document.addEventListener('click', function close(e) {
+            if (!el.contains(e.target)) {
+                panel.classList.add('hidden');
+                document.removeEventListener('click', close);
+            }
+        });
+    },
+
+    filterDropdown(input) {
+        const query = input.value.toLowerCase();
+        const optionDivs = input.closest('.dropdown-panel').querySelectorAll('.dropdown-options .dropdown-option');
+        optionDivs.forEach(div => {
+            const text = div.innerText.toLowerCase();
+            const val = div.getAttribute('data-value');
+            if (val === '') return;
+            div.style.display = text.includes(query) ? 'block' : 'none';
+        });
+    },
+
+    selectDropdownOption(dropdownId, value, text) {
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) return;
+
+        const displaySpan = dropdown.querySelector('.dropdown-display span:first-child');
+        if (displaySpan) displaySpan.textContent = text;
+
+        const panel = dropdown.querySelector('.dropdown-panel');
+        if (panel) panel.classList.add('hidden');
+
+        // Update hidden select if it exists (convention: dropdownId derived from selectId)
+        // For productCategory, we manually handle it or specific logic
+        // But for generic usage, we can look for a callback
+        const onChangeFnName = dropdown.dataset.onChange;
+        if (onChangeFnName) {
+            const fn = this.resolveFunctionByName(onChangeFnName);
+            if (typeof fn === 'function') {
+                fn(value, text);
+            }
+        }
+
+        // Specific legacy logic for productCategory (can be refactored to use generic callback later)
+        if (dropdownId === 'categorySearchDropdown') {
+            const hiddenSelect = document.getElementById('productCategory');
+            if (hiddenSelect) {
+                hiddenSelect.value = value;
+                this.toggleNewProductCategory();
+            }
+        }
+
+        const options = dropdown.querySelectorAll('.dropdown-option');
+        options.forEach(opt => {
+            if (opt.getAttribute('data-value') === value) opt.classList.add('active');
+            else opt.classList.remove('active');
+        });
+    },
+
+    resolveFunctionByName(path) {
+        return path.split('.').reduce((acc, part) => acc && acc[part], window);
+    },
+
+
+    async handleAddProduct(event) {
+        event.preventDefault();
+        const typeSelect = document.getElementById('productHasStock');
+        const catSelect = document.getElementById('productCategory');
+        const nameInput = document.getElementById('productName');
+        const costInput = document.getElementById('productCost');
+        const priceInput = document.getElementById('productPrice');
+        const stockInput = document.getElementById('productStock');
+
+        // New fields
+        const saleUnitInput = document.getElementById('productSaleUnit');
+        const purchaseUnitInput = document.getElementById('productPurchaseUnit');
+        const unitsPerPurchaseInput = document.getElementById('productUnitsPerPurchase');
+
+        const itemType = typeSelect.value === 'yes' ? 'product' : 'service';
+        let categoryId = catSelect.value;
+        const name = nameInput.value.trim();
+        const costPrice = parseFloat(costInput.value) || 0;
+        const sellingPrice = parseFloat(priceInput.value) || 0;
+        const stock = parseFloat(stockInput.value) || 0;
+
+        const unit = saleUnitInput ? saleUnitInput.value.trim() : '';
+        // Note: purchaseUnit and unitsPerPurchase are not in base schema yet, 
+        // but we can store them if schema allows or just ignore for now/add to note.
+        // Assuming we just map what we can.
+
+        if (!name) return this.showToast('Name is required', 'error');
+        if (!categoryId) return this.showToast('Category is required', 'error');
+
+        const btn = event.submitter;
+        if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+        try {
+            if (categoryId === 'new') {
+                const newName = document.getElementById('newCategoryName').value.trim();
+                const newDesc = '';
+                if (!newName) throw new Error('New Category Name is required');
+                const cat = await this.createBranchCategory({ name: newName, description: newDesc });
+                categoryId = cat.id;
+            }
+
+            await this.createBranchProduct({
+                name,
+                categoryId,
+                itemType,
+                costPrice,
+                sellingPrice,
+                stock: itemType === 'product' ? stock : null,
+                unit: unit,
+                lowStock: 0 // Default
+            });
+
+            this.showToast('Product added successfully', 'success');
+            // Reset form or reload
+            this.renderProductsModule(document.getElementById('main-canvas'));
+
+        } catch (e) {
+            console.error(e);
+            this.showToast(e.message || 'Error adding product', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Add Product'; }
+        }
+    },
+
+    // Handlers for Custom Dropdowns
+    handleItemTypeChange(value) {
+        const select = document.getElementById('productHasStock');
+        if (select) select.value = value;
+        this.toggleInitialStock();
+    },
+
+    handleCategoryChange(value) {
+        const select = document.getElementById('productCategory');
+        if (select) select.value = value;
+        this.toggleNewProductCategory();
+    },
+
+    handleInvPeriodChange(value) {
+        const select = document.getElementById('productInvPeriodSelect');
+        if (select) select.value = value;
+    },
+
+    handleInvProductChange(value) {
+        const select = document.getElementById('inventory-product');
+        if (select) select.value = value;
+    },
+
+    handleInvTypeChange(value) {
+        const select = document.getElementById('inventory-type');
+        if (select) select.value = value;
+    },
+
+    handleExpenseCategoryChange(value) {
+        const select = document.getElementById('expense-category');
+        if (select) {
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+        }
+    },
+
+    handleEditExpenseCategoryChange(value) {
+        const select = document.getElementById('edit-expense-category');
+        if (select) select.value = value;
+    },
+
+    handleIncomeSourceChange(value) {
+        const select = document.getElementById('income-source');
+        if (select) {
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+        }
+    },
+
+    handleInvoiceCustomerChange(value) {
+        const select = document.getElementById('invoice-customer');
+        if (select) select.value = value;
+    },
+
+    handleInvoiceStatusChange(value) {
+        const select = document.getElementById('invoice-status');
+        if (select) select.value = value;
+    },
+
+    handleReportTypeChange(value) {
+        const select = document.getElementById('report-type');
+        if (select) select.value = value;
+    },
+
+    handleReportPeriodChange(value) {
+        const select = document.getElementById('report-period');
+        if (select) select.value = value;
+    },
+
+    handleLoanStatusChange(value) {
+        const select = document.getElementById('loan-status');
+        if (select) select.value = value;
+    },
+
+    handleMaintenanceStatusChange(value) {
+        const select = document.getElementById('maintenance-status');
+        if (select) select.value = value;
+    },
+
+    handleSettingsCurrencyChange(value) {
+        const select = document.getElementById('settings-currency');
+        if (select) {
+            select.value = value;
+            // Trigger the native change logic which saves to localStorage and reloads
+            select.dispatchEvent(new Event('change'));
+        }
+    },
+
+    handleQuickAddItemTypeChange(value) {
+        const stockGroup = document.getElementById('qa-stock-group');
+        const hiddenSelect = document.getElementById('qa-has-stock');
+        if (hiddenSelect) hiddenSelect.value = value;
+        if (stockGroup) {
+            stockGroup.style.display = value === 'no' ? 'none' : 'block';
+        }
+    },
+
+    handleQuickAddCategoryChange(value) {
+        const hiddenSelect = document.getElementById('qa-category');
+        if (hiddenSelect) hiddenSelect.value = value;
+    },
+
+    async showQuickAddProductModal(onSuccess) {
+        const categories = await this.fetchBranchCategories();
+        const categoryOptions = [
+            { value: '', label: '-- Select Category --' },
+            ...categories.map(cat => ({ value: cat.id, label: cat.name }))
+        ];
+
+        const itemTypeOptions = [
+            { value: 'yes', label: 'Product (has stock)' },
+            { value: 'no', label: 'Service (no stock)' }
+        ];
+
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        if (!modalTitle || !modalContent) return;
+
+        modalTitle.textContent = 'Quick Add Product/Service';
+        modalContent.innerHTML = `
+            <div id="qa-modal-message" class="message-box hidden"></div>
+            <form id="qa-modal-form" class="auth-form" style="max-width: 100%;">
+                <div class="form-group">
+                    <label>Item Type</label>
+                    <select id="qa-has-stock" style="display:none;">
+                        <option value="yes" selected>Product</option>
+                        <option value="no">Service</option>
+                    </select>
+                    ${this.renderCustomDropdown('qaTypeDropdown', itemTypeOptions, 'yes', 'Product (has stock)', 'app.handleQuickAddItemTypeChange')}
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="qa-category" style="display:none;">
+                        <option value="">-- Select Category --</option>
+                    </select>
+                    ${this.renderCustomDropdown('qaCategoryDropdown', categoryOptions, '', '-- Select Category --', 'app.handleQuickAddCategoryChange')}
+                </div>
+                <div class="form-group">
+                    <label>Item Name *</label>
+                    <input type="text" id="qa-name" placeholder="Name of product or service" required>
+                </div>
+                <div class="form-row" style="display:flex; gap:1rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Selling Price *</label>
+                        <input type="number" id="qa-price" step="0.01" min="0" placeholder="0.00" required>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Cost Price</label>
+                        <input type="number" id="qa-cost" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                </div>
+                <div class="form-row" style="display:flex; gap:1rem;">
+                    <div class="form-group" style="flex:1;" id="qa-stock-group">
+                        <label>Initial Stock</label>
+                        <input type="number" id="qa-stock" min="0" value="0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Sale Unit</label>
+                        <input type="text" id="qa-unit" placeholder="e.g. piece, hour">
+                    </div>
+                </div>
+                <div class="modal-actions" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    <button type="button" class="btn-ghost" style="flex:1" onclick="app.closeModal('modal-overlay')">Cancel</button>
+                    <button type="submit" class="btn-primary" style="flex:1">Save Item</button>
+                </div>
+            </form>
+        `;
+
+        this.openModal('modal-overlay');
+
+        const form = document.getElementById('qa-modal-form');
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('qa-name').value.trim();
+            const hasStock = document.getElementById('qa-has-stock').value;
+            const categoryId = document.getElementById('qa-category').value;
+            const price = parseFloat(document.getElementById('qa-price').value);
+            const cost = parseFloat(document.getElementById('qa-cost').value) || 0;
+            const stock = parseInt(document.getElementById('qa-stock').value) || 0;
+            const unit = document.getElementById('qa-unit').value.trim();
+
+            if (!name) {
+                this.showMessage('qa-modal-message', 'Item name is required.', 'error');
+                return;
+            }
+
+            const saveBtn = form.querySelector('button[type="submit"]');
+            saveBtn.textContent = 'Saving...';
+            saveBtn.disabled = true;
+
+            try {
+                const created = await this.createBranchProduct({
+                    name,
+                    itemType: hasStock === 'yes' ? 'product' : 'service',
+                    categoryId: categoryId || null,
+                    costPrice: cost,
+                    sellingPrice: price,
+                    unit: unit,
+                    stock: hasStock === 'yes' ? stock : 0,
+                    lowStock: 5
+                });
+                this.showToast('Item added successfully', 'success');
+                this.closeModal('modal-overlay');
+                if (typeof onSuccess === 'function') onSuccess(created);
+            } catch (err) {
+                console.error('Quick add failed:', err);
+                this.showMessage('qa-modal-message', err.message || 'Failed to add item.', 'error');
+                saveBtn.textContent = 'Save Item';
+                saveBtn.disabled = false;
+            }
+        };
+    },
+
+    handleSaleProductChange(value) {
+        const select = document.getElementById('sale-product');
+        if (select) {
+            select.value = value;
+            // Trigger the native change logic
+            select.dispatchEvent(new Event('change'));
+        }
+    },
+
+    handleSaleCustomerChange(value) {
+        const select = document.getElementById('sale-customer');
+        if (select) select.value = value;
+    },
+
+    // Bulk Actions & Selection
+    toggleSelectAll(type) {
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
+        const selectAll = document.getElementById(`selectAll_${type}`);
+        const checked = selectAll.checked;
+
+        checkboxes.forEach(cb => {
+            cb.checked = checked;
+            if (checked) this.state.selectedProducts.add(cb.value);
+            else this.state.selectedProducts.delete(cb.value);
+        });
+        this.updateBulkActionState(type);
+    },
+
+    toggleSelect(type, id) {
+        const cb = document.querySelector(`input[value="${id}"].${type}-checkbox`);
+        if (cb) {
+            if (cb.checked) this.state.selectedProducts.add(id);
+            else this.state.selectedProducts.delete(id);
+        }
+        this.updateBulkActionState(type);
+        // Update Select All checkbox state
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
+        const selectAll = document.getElementById(`selectAll_${type}`);
+        if (selectAll) {
+            const allChecked = Array.from(checkboxes).every(c => c.checked);
+            const someChecked = Array.from(checkboxes).some(c => c.checked);
+            selectAll.checked = allChecked;
+            selectAll.indeterminate = someChecked && !allChecked;
+        }
+    },
+
+    updateBulkActionState(type) {
+        const count = this.state.selectedProducts.size;
+        const countSpan = document.getElementById(`${type}SelectedCount`);
+        if (countSpan) countSpan.textContent = `${count} selected`;
+
+        const deleteBtn = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
+        if (deleteBtn) deleteBtn.disabled = count === 0;
+
+        const tagBtn = document.getElementById(`btnBulkTag${type.charAt(0).toUpperCase() + type.slice(1)}`);
+        if (tagBtn) tagBtn.disabled = count === 0;
+    },
+
+    async bulkDelete(type) {
+        const count = this.state.selectedProducts.size;
+        if (count === 0) return;
+
+        if (!await this.confirmAsync(`Are you sure you want to delete ${count} items? This action is permanent.`, 'danger', 'Bulk Delete')) return;
+
+        // Verify PIN first
+        this.promptPinVerification(async () => {
+            const ids = Array.from(this.state.selectedProducts);
+            let successCount = 0;
+
+            // Show loading
+            const btn = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
+            const originalText = btn ? btn.innerText : 'Delete';
+            if (btn) btn.innerText = 'Deleting...';
+
+            for (const id of ids) {
+                try {
+                    if (type === 'products') await this.deleteBranchProduct(id);
+                    successCount++;
+                    this.state.selectedProducts.delete(id);
+                } catch (e) {
+                    console.error(`Failed to delete ${id}`, e);
+                }
+            }
+
+            this.showToast(`Deleted ${successCount} items`, 'success');
+            if (type === 'products') this.renderProductsModule(document.getElementById('main-canvas'));
+        });
+    },
+
+    async bulkApplyTag(type) {
+        const count = this.state.selectedProducts.size;
+        if (count === 0) return;
+        // Open tag modal in bulk mode? Or simple prompt?
+        // Converting generic tag modal to handle bulk or single
+        this.openItemTagsModal(type, null, true); // null id, true for bulk
+    },
+
+    // Tagging System (Generic)
+    getModuleTagTable(module) {
+        // Map module names to their respective tag tables
+        const maps = {
+            'products': 'product_tags',
+            'expenses': 'expense_tags',
+            'income': 'income_tags',
+            'sales': 'sale_tags',
+            'notes': 'note_tags'
+        };
+        return maps[module] || 'product_tags';
+    },
+
+    getModuleIdField(module) {
+        // Map module names to their ID field in the tag table
+        const maps = {
+            'products': 'product_id',
+            'expenses': 'expense_id',
+            'income': 'income_id',
+            'sales': 'sale_id',
+            'notes': 'note_id'
+        };
+        return maps[module] || 'product_id';
+    },
+
+    async fetchItemTags(module, itemId) {
+        if (!itemId || itemId === 'undefined') return [];
+        const table = this.getModuleTagTable(module);
+        const idField = this.getModuleIdField(module);
+        const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .eq(idField, itemId);
+        if (error) {
+            console.error(`Error fetching ${module} tags:`, error);
+            return [];
+        }
+        return data || [];
+    },
+
+    async addItemTag(module, itemId, tag) {
+        const table = this.getModuleTagTable(module);
+        const idField = this.getModuleIdField(module);
+        const profile = this.state.currentProfile;
+        const bid = profile?.branch_id || profile?.id;
+        if (!bid) throw new Error('No branch ID available in profile');
+
+        const { data, error } = await supabase
+            .from(table)
+            .insert({
+                branch_id: bid,
+                [idField]: itemId,
+                tag: tag
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    async removeItemTag(module, tagId) {
+        const table = this.getModuleTagTable(module);
+        const { error } = await supabase
+            .from(table)
+            .delete()
+            .eq('id', tagId);
+        if (error) throw error;
+    },
+
+    async fetchAllItemTags(module) {
+        const table = this.getModuleTagTable(module);
+        const { data, error } = await supabase
+            .from(table)
+            .select('*');
+        if (error) {
+            console.error(`Error fetching all ${module} tags:`, error);
+            return [];
+        }
+        return data || [];
+    },
+
+    async openItemTagsModal(module, id, isBulk = false) {
+        const modalId = 'itemTagsModal';
+        let modal = document.getElementById(modalId);
+
+        let tags = [];
+        if (!isBulk && id) {
+            tags = await this.fetchItemTags(module, id);
+        }
+
+        const title = isBulk ? `Tag ${this.state.selectedProducts.size} Items` : 'Manage Tags';
+
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = modalId;
+            modal.className = 'modal hidden';
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <h3 style="margin-top:0">${title}</h3>
+                <div class="flex-gap" style="margin-bottom: 1rem;">
+                    <input type="text" id="newTagInput" placeholder="Enter tag name" class="flex-1" style="padding: 8px;">
+                    <button class="btn-primary" id="btnAddTag">Add</button>
+                </div>
+                <div id="tagsList" class="flex-gap" style="flex-wrap: wrap;">
+                    ${isBulk ? '<p class="text-muted">Bulk tagging adds tags to all selected items.</p>' :
+                tags.map(t => `
+                        <span class="btn-tag active" style="display:inline-flex;align-items:center;gap:4px;">
+                            ${t.tag}
+                            <span onclick="app.handleRemoveTag('${module}', '${t.id}', '${id}')" style="cursor:pointer;font-weight:bold;">&times;</span>
+                        </span>
+                      `).join('') || '<p class="text-muted">No tags yet.</p>'}
+                </div>
+                <div class="flex-gap" style="justify-content: flex-end; margin-top: 1rem;">
+                    <button class="btn-secondary" onclick="document.getElementById('${modalId}').classList.add('hidden'); app.refreshModuleList('${module}')">Close</button>
+                </div>
+            </div>
+        `;
+
+        modal.classList.remove('hidden');
+
+        const input = document.getElementById('newTagInput');
+        const addBtn = document.getElementById('btnAddTag');
+
+        const addTagHandler = async () => {
+            const tag = input.value.trim();
+            if (!tag) return;
+
+            addBtn.disabled = true;
+            addBtn.textContent = '...';
+
+            try {
+                if (isBulk) {
+                    const ids = Array.from(module === 'products' ? this.state.selectedProducts : new Set()); // For now, only products support bulk
+                    for (const pid of ids) {
+                        try {
+                            await this.addItemTag(module, pid, tag);
+                        } catch (e) {/* ignore dups/errors */ }
+                    }
+                    this.showToast(`Tag added to selected items`, 'success');
+                    modal.classList.add('hidden');
+                    this.refreshModuleList(module);
+                } else {
+                    await this.addItemTag(module, id, tag);
+                    // Refresh modal tags
+                    this.openItemTagsModal(module, id, false);
+                }
+                input.value = '';
+            } catch (e) {
+                console.error(e);
+                this.showToast('Failed to add tag', 'error');
+            } finally {
+                addBtn.disabled = false;
+                addBtn.textContent = 'Add';
+            }
+        };
+
+        addBtn.onclick = addTagHandler;
+        input.onkeydown = (e) => { if (e.key === 'Enter') addTagHandler(); };
+    },
+
+    async handleRemoveTag(module, tagId, itemId) {
+        if (!await this.confirmAsync('Remove this tag from this item?', 'danger', 'Remove Tag')) return;
+        try {
+            await this.removeItemTag(module, tagId);
+            this.openItemTagsModal(module, itemId, false);
+        } catch (e) {
+            console.error(e);
+            this.showToast('Failed to remove tag', 'error');
+        }
+    },
+
+    // Inline Edit
+    // Product Edit Modal
+    async showEditProductModal(id) {
+        const products = this.readBranchData('products', []);
+        const p = products.find(item => item.id === id);
+        if (!p) {
+            this.showToast('Product not found', 'error');
+            return;
+        }
+
+        const categories = await this.fetchBranchCategories();
+        const categoryOptions = [
+            { value: '', label: '-- Select Category --' },
+            ...categories.map(cat => ({ value: cat.id, label: cat.name }))
+        ];
+
+        const itemTypeOptions = [
+            { value: 'yes', label: 'Product (has stock)' },
+            { value: 'no', label: 'Service (no stock)' }
+        ];
+
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        if (!modalTitle || !modalContent) return;
+
+        modalTitle.textContent = 'Edit Product/Service';
+        const currentType = p.itemType === 'service' ? 'no' : 'yes';
+        const currentTypeName = p.itemType === 'service' ? 'Service (no stock)' : 'Product (has stock)';
+        const currentCategory = categories.find(c => c.id === p.categoryId);
+        const currentCategoryName = currentCategory ? currentCategory.name : '-- Select Category --';
+
+        modalContent.innerHTML = `
+            <div id="edit-modal-message" class="message-box hidden"></div>
+            <form id="edit-modal-form" class="auth-form" style="max-width: 100%;">
+                <div class="form-group">
+                    <label>Item Type</label>
+                    <select id="edit-has-stock" style="display:none;">
+                        <option value="yes" ${currentType === 'yes' ? 'selected' : ''}>Product</option>
+                        <option value="no" ${currentType === 'no' ? 'selected' : ''}>Service</option>
+                    </select>
+                    ${this.renderCustomDropdown('editTypeDropdown', itemTypeOptions, currentType, currentTypeName, 'app.handleEditItemTypeChange')}
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="edit-category" style="display:none;">
+                        <option value="">-- Select Category --</option>
+                    </select>
+                    ${this.renderCustomDropdown('editCategoryDropdown', categoryOptions, p.categoryId || '', currentCategoryName, 'app.handleEditCategoryChange')}
+                </div>
+                <div class="form-group">
+                    <label>Item Name *</label>
+                    <input type="text" id="edit-name" value="${p.name || ''}" placeholder="Name of product or service" required>
+                </div>
+                <div class="form-row" style="display:flex; gap:1rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Selling Price *</label>
+                        <input type="number" id="edit-price" value="${p.sellingPrice || 0}" step="0.01" min="0" placeholder="0.00" required>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Cost Price</label>
+                        <input type="number" id="edit-cost" value="${p.costPrice || 0}" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                </div>
+                <div class="form-row" style="display:flex; gap:1rem;">
+                    <div class="form-group" style="flex:1;" id="edit-stock-group" style="display: ${currentType === 'no' ? 'none' : 'block'};">
+                        <label>Current Stock</label>
+                        <input type="number" id="edit-stock" value="${p.stock || 0}" min="0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Sale Unit</label>
+                        <input type="text" id="edit-unit" value="${p.unit || ''}" placeholder="e.g. piece, hour">
+                    </div>
+                </div>
+                <div class="modal-actions" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    <button type="button" class="btn-ghost" style="flex:1" onclick="app.closeModal('modal-overlay')">Cancel</button>
+                    <button type="submit" class="btn-primary" style="flex:1">Update Item</button>
+                </div>
+            </form>
+        `;
+
+        this.openModal('modal-overlay');
+
+        const form = document.getElementById('edit-modal-form');
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('edit-name').value.trim();
+            const hasStock = document.getElementById('edit-has-stock').value;
+            const categoryId = document.getElementById('edit-category').value;
+            const price = parseFloat(document.getElementById('edit-price').value);
+            const cost = parseFloat(document.getElementById('edit-cost').value) || 0;
+            const stock = parseInt(document.getElementById('edit-stock').value) || 0;
+            const unit = document.getElementById('edit-unit').value.trim();
+
+            if (!name) {
+                this.showMessage('edit-modal-message', 'Item name is required.', 'error');
+                return;
+            }
+
+            const saveBtn = form.querySelector('button[type="submit"]');
+            saveBtn.textContent = 'Updating...';
+            saveBtn.disabled = true;
+
+            try {
+                const updated = {
+                    ...p,
+                    name,
+                    itemType: hasStock === 'yes' ? 'product' : 'service',
+                    categoryId: categoryId || null,
+                    costPrice: cost,
+                    sellingPrice: price,
+                    unit: unit,
+                    stock: hasStock === 'yes' ? stock : 0
+                };
+                await this.upsertBranchProduct(updated);
+                this.showToast('Item updated successfully', 'success');
+                this.closeModal('modal-overlay');
+                this.renderProductsModule(document.getElementById('main-canvas'));
+            } catch (err) {
+                console.error('Update failed:', err);
+                this.showMessage('edit-modal-message', err.message || 'Failed to update item.', 'error');
+                saveBtn.textContent = 'Update Item';
+                saveBtn.disabled = false;
+            }
+        };
+    },
+
+    handleEditItemTypeChange(value) {
+        const stockGroup = document.getElementById('edit-stock-group');
+        const hiddenSelect = document.getElementById('edit-has-stock');
+        if (hiddenSelect) hiddenSelect.value = value;
+        if (stockGroup) {
+            stockGroup.style.display = value === 'no' ? 'none' : 'block';
+        }
+    },
+
+    handleEditCategoryChange(value) {
+        const hiddenSelect = document.getElementById('edit-category');
+        if (hiddenSelect) hiddenSelect.value = value;
+    },
+
+
+    searchProducts(query) {
+        query = query.toLowerCase();
+        const items = document.querySelectorAll('#productsList .item');
+        items.forEach(item => {
+            const term = item.getAttribute('data-search-term');
+            item.style.display = term.includes(query) ? 'block' : 'none';
+        });
+    },
+
+    clearProductSearch() {
+        const input = document.getElementById('productSearchBottom');
+        if (input) {
+            input.value = '';
+            this.searchProducts('');
+            this.toggleClearButton('productSearchBottom', 'productClearBtnBottom');
+        }
+    },
+
+    toggleClearButton(inputId, btnId) {
+        const input = document.getElementById(inputId);
+        const btn = document.getElementById(btnId);
+        if (input && btn) {
+            if (input.value.length > 0) btn.classList.remove('hidden');
+            else btn.classList.add('hidden');
+        }
+    },
+
+    toggleTagFilter(type, tagId) {
+        if (type === 'products') {
+            const current = this.state.productTagFilter;
+            this.state.productTagFilter = current === tagId ? null : tagId;
+            // Reload to apply filter
+            // We need to re-fetch to get correct filtering or just re-render if we had data
+            this.renderProductsModule(document.getElementById('ops-canvas'));
+        }
+    },
+
+    toggleSelectAll(type) {
+        const master = document.getElementById(`selectAll_${type}`);
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
+        checkboxes.forEach(cb => cb.checked = master.checked);
+        this.updateBulkActionState(type);
+    },
+
+    toggleSelect(type, id) {
+        this.updateBulkActionState(type);
+    },
+
+    updateBulkActionState(type) {
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox:checked`);
+        const count = checkboxes.length;
+        const countSpan = document.getElementById(`${type}SelectedCount`);
+        if (countSpan) countSpan.textContent = `${count} selected`;
+
+        const btnDelete = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
+        const btnTag = document.getElementById(`btnBulkTag${type.charAt(0).toUpperCase() + type.slice(1)}`);
+
+        if (btnDelete) btnDelete.disabled = count === 0;
+        if (btnTag) btnTag.disabled = count === 0;
+    },
+
+    bulkDelete(type) {
+        this.showToast('Bulk delete coming soon', 'info');
+    },
+
+    bulkApplyTag(type) {
+        this.showToast('Bulk tag coming soon', 'info');
+    },
+
+
+
+    deleteProductIndex(id) {
+        this.promptPinVerification(async () => {
+            try {
+                await this.deleteBranchProduct(id);
+                this.showToast('Product deleted', 'success');
+                this.loadPage('products');
+            } catch (e) {
+                this.showToast('Failed to delete', 'error');
+            }
+        });
+    },
+
+
+    async toggleItemTag(productId, tagName, btn) {
+        try {
+            const isActive = btn.classList.contains('active');
+            if (isActive) {
+                // Remove
+                // We need the ID of the product_tag row to remove it?
+                // fetchBranchProductTags returns rows.
+                // We need to find the row ID where product_id=X and tag=tagName
+                // This is inefficient. 
+                // Better: add a utility to delete
+            } else {
+                // Add
+                await this.addBranchProductTag(productId, tagName);
+                btn.classList.add('active');
+                // style set
+                btn.style.backgroundColor = btn.style.borderColor;
+                btn.style.color = '#fff';
+            }
+            this.showToast('Tags updated', 'success');
+        } catch (e) {
+            console.error(e);
+            this.showToast('Failed to update tag', 'error');
+        }
+    },
+
+    showMoreList(type) { },
+    showAllList(type) { },
 
     renderInventoryModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
@@ -2865,6 +4203,14 @@ const app = {
                 </tr>
             `).join('');
 
+            const stockProductOptions = stockProducts.map(p => ({ value: p.id, label: p.name }));
+            if (stockProducts.length === 0) stockProductOptions.unshift({ value: '', label: 'Add products first' });
+
+            const invTypeOptions = [
+                { value: 'in', label: 'Stock In' },
+                { value: 'out', label: 'Stock Out' }
+            ];
+
             canvas.innerHTML = `
             <div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -2877,24 +4223,26 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">Stock Movement</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-inventory-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-inventory-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-inventory-body" class="hidden">
+                    <div id="ops-inventory-body">
                         <div id="ops-inventory-message" class="message-box hidden"></div>
                         <form id="ops-inventory-form" class="auth-form" style="max-width: 100%;">
                         <div class="input-group">
                             <label>Product</label>
-                            <select id="inventory-product" class="input-field" ${stockProducts.length === 0 ? 'disabled' : ''}>
+                            <select id="inventory-product" class="input-field" style="display:none;" ${stockProducts.length === 0 ? 'disabled' : ''}>
                                 <option value="" disabled selected>${stockProducts.length === 0 ? 'Add products first' : 'Select product'}</option>
                                 ${options}
                             </select>
+                            ${this.renderCustomDropdown('invProductDropdown', stockProductOptions, '', stockProducts.length === 0 ? 'Add products first' : 'Select product', 'app.handleInvProductChange')}
                         </div>
                         <div class="input-group">
                             <label>Type</label>
-                            <select id="inventory-type" class="input-field" ${stockProducts.length === 0 ? 'disabled' : ''}>
+                            <select id="inventory-type" class="input-field" style="display:none;" ${stockProducts.length === 0 ? 'disabled' : ''}>
                                 <option value="in">Stock In</option>
                                 <option value="out">Stock Out</option>
                             </select>
+                            ${this.renderCustomDropdown('invTypeDropdown', invTypeOptions, 'in', 'Stock In', 'app.handleInvTypeChange')}
                         </div>
                         <div class="input-group">
                             <label>Quantity</label>
@@ -3214,7 +4562,8 @@ const app = {
             // Force user to set PIN if not set
             this.showConfirmModal(
                 "Security PIN is not set. You must set a PIN to perform this action. Go to Profile?",
-                () => this.loadPage('profile')
+                () => this.loadPage('profile'),
+                { type: 'warning', title: 'Security Setup', confirmText: 'Go to Profile' }
             );
             return;
         }
@@ -3291,8 +4640,9 @@ const app = {
             this.fetchBranchCategories(),
             this.fetchBranchProducts(),
             this.fetchBranchCustomers(),
-            this.fetchBranchSales(currentPage, pageSize, todayStart, null)
-        ]).then(([categories, products, customers, salesData]) => {
+            this.fetchBranchSales(currentPage, pageSize, todayStart, null),
+            this.fetchAllItemTags('sales')
+        ]).then(([categories, products, customers, salesData, saleTags]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
 
             // Handle server-side filtering results
@@ -3315,10 +4665,15 @@ const app = {
                 const profitColor = profit > 0 ? '#22c55e' : '#ef4444';
                 const profitLabel = (profit >= 0 ? '+' : '') + this.formatCurrency(profit);
                 const saleJson = encodeURIComponent(JSON.stringify(sale));
+                const itemTags = saleTags.filter(t => t.sale_id === sale.id);
+                const tagUnix = itemTags.map(t => `<span class="badge" style="background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid rgba(255,255,255,0.3);">${t.tag}</span>`).join('');
                 return `
                 <div class="sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}">
                     <div class="sale-item-header">
-                        <span class="sale-item-title">${sale.productName || 'Unknown'}</span>
+                        <span class="sale-item-title">
+                            ${sale.productName || 'Unknown'}
+                            ${tagUnix ? `<div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">${tagUnix}</div>` : ''}
+                        </span>
                         <span class="sale-item-badge" style="background: ${profitColor}18; color: ${profitColor};">Profit: ${profitLabel}</span>
                     </div>
                     <div class="sale-item-subtitle">
@@ -3341,6 +4696,9 @@ const app = {
                         <button class="sale-action-btn sale-action-copy" data-action="copy" title="Copy">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                             Copy
+                        </button>
+                        <button class="sale-action-btn" style="background:rgba(255,255,255,0.05); color:#fff; border:1px solid rgba(255,255,255,0.1);" onclick="app.openItemTagsModal('sales', '${sale.id}')" title="Tag">
+                             <span>📌</span> Tag
                         </button>
                     </div>
                 </div>
@@ -3371,16 +4729,17 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Sale</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-sales-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-sales-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-sales-body" class="hidden">
+                    <div id="ops-sales-body">
                         <div id="ops-sales-message" class="message-box hidden"></div>
                         <form id="ops-sales-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
                                 <label>Product</label>
-                                <select id="sale-product" class="input-field">
+                                <select id="sale-product" class="input-field" style="display:none;">
                                     <option value="" disabled selected>Select product</option>
                                 </select>
+                                ${this.renderCustomDropdown('saleProductDropdown', [], '', 'Select product', 'app.handleSaleProductChange')}
                             </div>
                             <div class="input-group">
                                 <label>Selling Price</label>
@@ -3396,10 +4755,11 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Customer</label>
-                                <select id="sale-customer" class="input-field">
+                                <select id="sale-customer" class="input-field" style="display:none;">
                                     <option value="">Walk-in Customer</option>
                                     ${customerOptions}
                                 </select>
+                                ${this.renderCustomDropdown('saleCustomerDropdown', [{ value: '', label: 'Walk-in Customer' }, ...customers.map(c => ({ value: c.id, label: c.name }))], '', 'Walk-in Customer', 'app.handleSaleCustomerChange')}
                             </div>
                             <div class="input-group">
                                 <label>Note</label>
@@ -3474,6 +4834,14 @@ const app = {
                         ${options}
                         <option value="${quickAddValue}">+ Add & Save New Product</option>
                     `;
+
+                    // Sync Custom Dropdown
+                    const customOptions = [
+                        ...products.map(p => ({ value: p.id, label: p.name })),
+                        { value: quickAddValue, label: '+ Add & Save New Product' }
+                    ];
+                    this.refreshCustomDropdownOptions('saleProductDropdown', customOptions, selectedId, 'Select product');
+
                     if (selectedId) {
                         productSelect.value = selectedId;
                     }
@@ -3495,112 +4863,10 @@ const app = {
                 // Restore Quick Add Logic
                 const handleQuickAdd = () => {
                     if (!productSelect) return;
-                    this.hideMessage('ops-sales-message');
-                    productSelect.value = '';
-
-                    // Remove any existing inline quick-add card
-                    const existing = document.getElementById('inline-quick-add-card');
-                    if (existing) existing.remove();
-
-                    // Build inline form card
-                    const card = document.createElement('div');
-                    card.id = 'inline-quick-add-card';
-                    card.className = 'inline-quick-add';
-                    card.innerHTML = `
-                        <div class="inline-quick-add-header">
-                            <span>New Product</span>
-                            <button type="button" class="inline-quick-add-close" id="qa-cancel" title="Cancel">&times;</button>
-                        </div>
-                        <div id="qa-message" class="message-box hidden"></div>
-                        <div class="input-group">
-                            <label>Product Name *</label>
-                            <input type="text" id="qa-name" class="input-field" placeholder="e.g. Widget" autofocus>
-                        </div>
-                        <div class="inline-quick-add-row">
-                            <div class="input-group">
-                                <label>Selling Price *</label>
-                                <input type="number" id="qa-sell" class="input-field" min="0" step="0.01" value="0">
-                            </div>
-                            <div class="input-group">
-                                <label>Cost Price</label>
-                                <input type="number" id="qa-cost" class="input-field" min="0" step="0.01" value="0">
-                            </div>
-                            <div class="input-group">
-                                <label>Stock</label>
-                                <input type="number" id="qa-stock" class="input-field" min="0" step="1" value="0">
-                            </div>
-                        </div>
-                        <div class="inline-quick-add-actions">
-                            <button type="button" class="btn-primary" id="qa-save" style="width:auto;">Save Product</button>
-                            <button type="button" class="btn-ghost" id="qa-cancel-btn" style="width:auto;">Cancel</button>
-                        </div>
-                    `;
-
-                    // Insert right after the product select's .input-group
-                    const productGroup = productSelect.closest('.input-group');
-                    productGroup.insertAdjacentElement('afterend', card);
-
-                    // Animate in
-                    requestAnimationFrame(() => card.classList.add('open'));
-
-                    // Focus the name input
-                    const nameInput = card.querySelector('#qa-name');
-                    if (nameInput) nameInput.focus();
-
-                    const removeCard = () => {
-                        card.classList.remove('open');
-                        card.addEventListener('transitionend', () => card.remove(), { once: true });
-                        // Fallback removal if no transition fires
-                        setTimeout(() => { if (card.parentNode) card.remove(); }, 350);
-                        refreshProducts();
-                    };
-
-                    // Cancel buttons
-                    card.querySelector('#qa-cancel').addEventListener('click', removeCard);
-                    card.querySelector('#qa-cancel-btn').addEventListener('click', removeCard);
-
-                    // Save button
-                    card.querySelector('#qa-save').addEventListener('click', async () => {
-                        const name = (card.querySelector('#qa-name').value || '').trim();
-                        const sellingPrice = Number(card.querySelector('#qa-sell').value || 0);
-                        const costPrice = Number(card.querySelector('#qa-cost').value || 0);
-                        const stock = Number(card.querySelector('#qa-stock').value || 0);
-
-                        if (!name) {
-                            this.showMessage('qa-message', 'Product name is required.', 'error');
-                            return;
-                        }
-                        if (Number.isNaN(sellingPrice) || sellingPrice < 0) {
-                            this.showMessage('qa-message', 'Selling price must be a valid number.', 'error');
-                            return;
-                        }
-
-                        const saveBtn = card.querySelector('#qa-save');
-                        saveBtn.textContent = 'Saving...';
-                        saveBtn.disabled = true;
-
-                        try {
-                            const created = await this.createBranchProduct({
-                                name,
-                                itemType: 'product',
-                                categoryId: null,
-                                costPrice: Number.isNaN(costPrice) ? 0 : costPrice,
-                                sellingPrice,
-                                unit: '',
-                                stock: Number.isNaN(stock) ? 0 : stock,
-                                lowStock: 5
-                            });
-                            products.unshift(created);
-                            this.showToast('Product added', 'success');
-                            card.remove();
-                            refreshProducts(created.id);
-                            updateTotals();
-                        } catch (error) {
-                            console.error('Failed to add product:', error);
-                            this.showMessage('qa-message', error.message || 'Failed to add product.', 'error');
-                            saveBtn.textContent = 'Save Product';
-                            saveBtn.disabled = false;
-                        }
+                    this.showQuickAddProductModal((created) => {
+                        products.unshift(created);
+                        refreshProducts(created.id);
+                        updateTotals();
                     });
                 };
 
@@ -4010,17 +5276,25 @@ const app = {
     renderExpensesModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
-        this.fetchBranchExpenses().then((expenses) => {
+        Promise.all([
+            this.fetchBranchExpenses(),
+            this.fetchAllItemTags('expenses')
+        ]).then(([expenses, expenseTags]) => {
             const { items: pagedExpenses, page: expensesPage, totalPages: expensesPages } = this.paginateList(expenses, 'expenses', 10);
             const categories = this.getExpenseCategories();
             const quickAddVal = '__quick_add_expense_cat__';
             const categoryOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
             const rows = pagedExpenses.map(expense => {
                 const expenseJson = encodeURIComponent(JSON.stringify(expense));
+                const itemTags = expenseTags.filter(t => t.expense_id === expense.id);
+                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
                 <tr class="expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
                     <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">${expense.title}</td>
+                    <td data-label="Title">
+                        ${expense.title}
+                        ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
+                    </td>
                     <td data-label="Category">${expense.category || '-'}</td>
                     <td data-label="Amount">${this.formatCurrency(expense.amount || 0)}</td>
                     <td data-label="Note">${expense.note || '-'}</td>
@@ -4029,7 +5303,7 @@ const app = {
                             <button class="btn-ghost expense-action-btn" data-action="edit" title="Edit" style="padding:0.2rem 0.4rem;">
                                 <span>✏️</span>
                             </button>
-                            <button class="btn-ghost expense-action-btn" data-action="tag" title="Tag" style="padding:0.2rem 0.4rem;">
+                            <button class="btn-ghost expense-action-btn" data-action="tag" title="Tag" style="padding:0.2rem 0.4rem;" onclick="app.openItemTagsModal('expenses', '${expense.id}')">
                                 <span>📌</span>
                             </button>
                             <button class="btn-ghost expense-action-btn" data-action="delete" title="Delete" style="color:var(--danger);padding:0.2rem 0.4rem;">
@@ -4053,9 +5327,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Expense</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-expense-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-expense-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-expense-body" class="hidden">
+                    <div id="ops-expense-body">
                         <div id="ops-expense-message" class="message-box hidden"></div>
                         <form id="ops-expense-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -4064,11 +5338,12 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Category</label>
-                                <select id="expense-category" class="input-field">
+                                <select id="expense-category" class="input-field" style="display:none;">
                                     <option value="" disabled selected>Select category</option>
                                     ${categoryOptions}
-                                    <option value="${quickAddVal}">+ Add New Category</option>
+                                    <option value="${quickAddVal}">+ Add & Save New Category</option>
                                 </select>
+                                ${this.renderCustomDropdown('expenseCategoryDropdown', [...categories.map(c => ({ value: c, label: c })), { value: quickAddVal, label: '+ Add & Save New Category' }], '', 'Select category', 'app.handleExpenseCategoryChange')}
                             </div>
                             <div class="input-group">
                                 <label>Amount</label>
@@ -4126,8 +5401,16 @@ const app = {
                         catSelect.innerHTML = `
                             <option value="" disabled ${selected ? '' : 'selected'}>Select category</option>
                             ${opts}
-                            <option value="${quickAddVal}">+ Add New Category</option>
+                            <option value="${quickAddVal}">+ Add & Save New Category</option>
                         `;
+
+                        // Sync Custom Dropdown
+                        const customOptions = [
+                            ...cats.map(c => ({ value: c, label: c })),
+                            { value: quickAddVal, label: '+ Add & Save New Category' }
+                        ];
+                        this.refreshCustomDropdownOptions('expenseCategoryDropdown', customOptions, selected, 'Select category');
+
                         if (selected) catSelect.value = selected;
                     };
 
@@ -4252,7 +5535,7 @@ const app = {
                         }
 
                         if (action === 'tag') {
-                            this.showToast('Tags coming soon!', 'info');
+                            // Handled by inline onclick to be safer and more direct
                         }
                     });
                 }
@@ -4283,10 +5566,11 @@ const app = {
                         </div>
                         <div class="input-group">
                             <label>Category</label>
-                            <select id="edit-expense-category" class="input-field">
+                            <select id="edit-expense-category" class="input-field" style="display:none;">
                                 <option value="" disabled>Select category</option>
                                 ${categoryOptions}
                             </select>
+                            ${this.renderCustomDropdown('editExpenseCategoryDropdown', categories.map(c => ({ value: c, label: c })), expense.category, 'Select category', 'app.handleEditExpenseCategoryChange')}
                         </div>
                         <div class="input-group">
                             <label>Amount</label>
@@ -4375,20 +5659,41 @@ const app = {
     renderIncomeModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
-        this.fetchBranchIncome().then((incomeEntries) => {
+        Promise.all([
+            this.fetchBranchIncome(),
+            this.fetchAllItemTags('income')
+        ]).then(([incomeEntries, incomeTags]) => {
             const { items: pagedIncome, page: incomePage, totalPages: incomePages } = this.paginateList(incomeEntries, 'income', 10);
             const sources = this.getIncomeSources();
             const quickAddVal = '__quick_add_income_src__';
             const sourceOptions = sources.map(s => `<option value="${s}">${s}</option>`).join('');
-            const rows = pagedIncome.map(entry => `
-                <tr>
+            const rows = pagedIncome.map(entry => {
+                const itemTags = incomeTags.filter(t => t.income_id === entry.id);
+                const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
+                const entryJson = encodeURIComponent(JSON.stringify(entry));
+                return `
+                <tr class="income-item" data-income-id="${entry.id}" data-income="${entryJson}">
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
-                    <td data-label="Title">${entry.title}</td>
+                    <td data-label="Title">
+                        ${entry.title}
+                        ${tagUnix ? `<div style="margin-top:4px;">${tagUnix}</div>` : ''}
+                    </td>
                     <td data-label="Source">${entry.source || '-'}</td>
                     <td data-label="Amount">${this.formatCurrency(entry.amount || 0)}</td>
                     <td data-label="Note">${entry.note || '-'}</td>
+                    <td data-label="Actions" style="text-align:right;">
+                        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                            <button class="btn-ghost" title="Tag" style="padding:0.2rem 0.4rem;" onclick="app.openItemTagsModal('income', '${entry.id}')">
+                                <span>📌</span>
+                            </button>
+                            <button class="btn-ghost" title="Delete" style="color:var(--danger);padding:0.2rem 0.4rem;" onclick="app.deleteBranchIncomeRow('${entry.id}')">
+                                <span>🗑️</span>
+                            </button>
+                        </div>
+                    </td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
 
             canvas.innerHTML = `
             <div class="page-enter">
@@ -4402,9 +5707,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Income</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-income-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-income-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-income-body" class="hidden">
+                    <div id="ops-income-body">
                         <div id="ops-income-message" class="message-box hidden"></div>
                         <form id="ops-income-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -4413,11 +5718,12 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Source</label>
-                                <select id="income-source" class="input-field">
+                                <select id="income-source" class="input-field" style="display:none;">
                                     <option value="" disabled selected>Select source</option>
                                     ${sourceOptions}
-                                    <option value="${quickAddVal}">+ Add New Source</option>
+                                    <option value="${quickAddVal}">+ Add & Save New Source</option>
                                 </select>
+                                ${this.renderCustomDropdown('incomeSourceDropdown', [...sources.map(s => ({ value: s, label: s })), { value: quickAddVal, label: '+ Add & Save New Source' }], '', 'Select source', 'app.handleIncomeSourceChange')}
                             </div>
                             <div class="input-group">
                                 <label>Amount</label>
@@ -4448,6 +5754,7 @@ const app = {
                                         <th>Source</th>
                                         <th>Amount</th>
                                         <th>Note</th>
+                                        <th style="text-align:right;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4474,8 +5781,16 @@ const app = {
                         srcSelect.innerHTML = `
                             <option value="" disabled ${selected ? '' : 'selected'}>Select source</option>
                             ${opts}
-                            <option value="${quickAddVal}">+ Add New Source</option>
+                            <option value="${quickAddVal}">+ Add & Save New Source</option>
                         `;
+
+                        // Sync Custom Dropdown
+                        const customOptions = [
+                            ...srcs.map(s => ({ value: s, label: s })),
+                            { value: quickAddVal, label: '+ Add & Save New Source' }
+                        ];
+                        this.refreshCustomDropdownOptions('incomeSourceDropdown', customOptions, selected, 'Select source');
+
                         if (selected) srcSelect.value = selected;
                     };
 
@@ -4572,16 +5887,33 @@ const app = {
         });
     },
 
+    async deleteBranchIncomeRow(id) {
+        if (!await this.confirmAsync('Are you sure you want to delete this income entry?', 'danger', 'Delete Income')) return;
+        try {
+            await supabase.from('income').delete().eq('id', id);
+            this.showToast('Income deleted', 'success');
+            this.renderIncomeModule(document.getElementById('ops-canvas'));
+        } catch (error) {
+            console.error('Delete income failed:', error);
+            this.showToast('Delete failed', 'error');
+        }
+    },
+
     renderNotesModule(canvas) {
         canvas.innerHTML = this.getLoaderHTML();
 
-        this.fetchBranchNotes().then((notes) => {
+        Promise.all([
+            this.fetchBranchNotes(),
+            this.fetchAllItemTags('notes')
+        ]).then(([notes, noteTags]) => {
             const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 10);
 
             // New Card-based Layout
             const noteCards = pagedNotes.map(note => {
                 const dateStr = new Date(note.createdAt).toLocaleString();
                 const noteJson = encodeURIComponent(JSON.stringify(note));
+                const itemTags = noteTags.filter(t => t.note_id === note.id);
+                const tagUnix = itemTags.map(t => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${t.tag}</span>`).join('');
 
                 return `
                 <div class="item" data-note-id="${note.id}" data-note="${noteJson}">
@@ -4593,7 +5925,7 @@ const app = {
                         <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
                             <span style="margin-right: 4px;">✏️</span> Edit
                         </button>
-                        <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                        <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('notes', '${note.id}')">
                             <span style="margin-right: 4px;">📌</span> Tag
                         </button>
                         <div style="flex:1;"></div>
@@ -4602,8 +5934,7 @@ const app = {
                         </button>
                     </div>
                     <div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">
-                        <!-- Placeholder for tags -->
-                        ${note.tags ? note.tags.map(tag => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${tag}</span>`).join('') : ''}
+                        ${tagUnix}
                     </div>
                 </div>
                 `;
@@ -4741,8 +6072,7 @@ const app = {
                         }
 
                         if (action === 'tag') {
-                            this.showToast('Tags coming soon!', 'info');
-                            // Placeholder for openItemTagsModal
+                            // Handled by inline onclick
                         }
                     });
                 }
@@ -4904,9 +6234,9 @@ const app = {
             }
         });
 
-        const close = () => {
+        const close = async () => {
             if (isEditing) {
-                if (!confirm('Discard unsaved changes?')) return;
+                if (!await this.confirmAsync('Discard unsaved changes? All progress will be lost.', 'warning', 'Discard Changes')) return;
             }
             modal.remove();
         };
@@ -5136,9 +6466,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Invoice</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-invoices-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-invoices-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-invoices-body" class="hidden">
+                    <div id="ops-invoices-body">
                         <div id="ops-invoices-message" class="message-box hidden"></div>
                         <form id="ops-invoices-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -5147,10 +6477,11 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Customer</label>
-                                <select id="invoice-customer" class="input-field">
+                                <select id="invoice-customer" class="input-field" style="display:none;">
                                     <option value="">Select customer</option>
                                     ${customerOptions}
                                 </select>
+                                ${this.renderCustomDropdown('invoiceCustomerDropdown', [{ value: '', label: 'Select customer' }, ...customers.map(c => ({ value: c.id, label: c.name }))], '', 'Select customer', 'app.handleInvoiceCustomerChange')}
                             </div>
                             <div class="input-group">
                                 <label>Amount</label>
@@ -5158,11 +6489,12 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Status</label>
-                                <select id="invoice-status" class="input-field">
+                                <select id="invoice-status" class="input-field" style="display:none;">
                                     <option value="unpaid" selected>Unpaid</option>
                                     <option value="paid">Paid</option>
                                     <option value="partial">Partially Paid</option>
                                 </select>
+                                ${this.renderCustomDropdown('invoiceStatusDropdown', [{ value: 'unpaid', label: 'Unpaid' }, { value: 'paid', label: 'Paid' }, { value: 'partial', label: 'Partially Paid' }], 'unpaid', 'Unpaid', 'app.handleInvoiceStatusChange')}
                             </div>
                             <div class="input-group">
                                 <label>Due Date</label>
@@ -5283,28 +6615,30 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Report Request</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-reports-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-reports-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-reports-body" class="hidden">
+                    <div id="ops-reports-body">
                         <div id="ops-reports-message" class="message-box hidden"></div>
                         <form id="ops-reports-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
                                 <label>Report Type</label>
-                                <select id="report-type" class="input-field">
+                                <select id="report-type" class="input-field" style="display:none;">
                                     <option value="sales">Sales</option>
                                     <option value="inventory">Inventory</option>
                                     <option value="expenses">Expenses</option>
                                     <option value="income">Income</option>
                                 </select>
+                                ${this.renderCustomDropdown('reportTypeDropdown', [{ value: 'sales', label: 'Sales' }, { value: 'inventory', label: 'Inventory' }, { value: 'expenses', label: 'Expenses' }, { value: 'income', label: 'Income' }], 'sales', 'Sales', 'app.handleReportTypeChange')}
                             </div>
                             <div class="input-group">
                                 <label>Period</label>
-                                <select id="report-period" class="input-field">
+                                <select id="report-period" class="input-field" style="display:none;">
                                     <option value="today">Today</option>
                                     <option value="week">This Week</option>
                                     <option value="month" selected>This Month</option>
                                     <option value="quarter">This Quarter</option>
                                 </select>
+                                ${this.renderCustomDropdown('reportPeriodDropdown', [{ value: 'today', label: 'Today' }, { value: 'week', label: 'This Week' }, { value: 'month', label: 'This Month' }, { value: 'quarter', label: 'This Quarter' }], 'month', 'This Month', 'app.handleReportPeriodChange')}
                             </div>
                             <div class="input-group">
                                 <label>Note</label>
@@ -5407,9 +6741,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Loan</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-loans-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-loans-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-loans-body" class="hidden">
+                    <div id="ops-loans-body">
                         <div id="ops-loans-message" class="message-box hidden"></div>
                         <form id="ops-loans-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -5426,11 +6760,12 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Status</label>
-                                <select id="loan-status" class="input-field">
+                                <select id="loan-status" class="input-field" style="display:none;">
                                     <option value="active" selected>Active</option>
                                     <option value="cleared">Cleared</option>
                                     <option value="overdue">Overdue</option>
                                 </select>
+                                ${this.renderCustomDropdown('loanStatusDropdown', [{ value: 'active', label: 'Active' }, { value: 'cleared', label: 'Cleared' }, { value: 'overdue', label: 'Overdue' }], 'active', 'Active', 'app.handleLoanStatusChange')}
                             </div>
                             <div class="input-group">
                                 <label>Due Date</label>
@@ -5544,9 +6879,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Asset</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-assets-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-assets-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-assets-body" class="hidden">
+                    <div id="ops-assets-body">
                         <div id="ops-assets-message" class="message-box hidden"></div>
                         <form id="ops-assets-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -5671,9 +7006,9 @@ const app = {
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h4 class="card-title">New Maintenance</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-maintenance-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-maintenance-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
                     </div>
-                    <div id="ops-maintenance-body" class="hidden">
+                    <div id="ops-maintenance-body">
                         <div id="ops-maintenance-message" class="message-box hidden"></div>
                         <form id="ops-maintenance-form" class="auth-form" style="max-width: 100%;">
                             <div class="input-group">
@@ -5690,11 +7025,12 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Status</label>
-                                <select id="maintenance-status" class="input-field">
+                                <select id="maintenance-status" class="input-field" style="display:none;">
                                     <option value="scheduled" selected>Scheduled</option>
                                     <option value="in-progress">In Progress</option>
                                     <option value="completed">Completed</option>
                                 </select>
+                                ${this.renderCustomDropdown('maintenanceStatusDropdown', [{ value: 'scheduled', label: 'Scheduled' }, { value: 'in-progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }], 'scheduled', 'Scheduled', 'app.handleMaintenanceStatusChange')}
                             </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Task</button>
                         </form>
@@ -5887,7 +7223,7 @@ const app = {
                         <div style="font-weight: 500;">Currency</div>
                         <div style="font-size: 0.85rem; color: var(--text-muted);">Default currency for transactions</div>
                    </div>
-                   <select id="settings-currency" class="input-field" style="min-width: 120px;">
+                   <select id="settings-currency" class="input-field" style="display:none;">
                         <option value="TZS" ${this.state.currentCurrency === 'TZS' ? 'selected' : ''}>TZS (Tanzanian Shilling)</option>
                         <option value="USD" ${this.state.currentCurrency === 'USD' ? 'selected' : ''}>USD (US Dollar)</option>
                         <option value="EUR" ${this.state.currentCurrency === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
@@ -5905,6 +7241,26 @@ const app = {
                         <option value="CAD" ${this.state.currentCurrency === 'CAD' ? 'selected' : ''}>CAD (Canadian Dollar)</option>
                         <option value="AUD" ${this.state.currentCurrency === 'AUD' ? 'selected' : ''}>AUD (Australian Dollar)</option>
                    </select>
+                   <div style="min-width: 200px;">
+                   ${this.renderCustomDropdown('settingsCurrencyDropdown', [
+            { value: 'TZS', label: 'TZS (Tanzanian Shilling)' },
+            { value: 'USD', label: 'USD (US Dollar)' },
+            { value: 'EUR', label: 'EUR (Euro)' },
+            { value: 'GBP', label: 'GBP (British Pound)' },
+            { value: 'KES', label: 'KES (Kenyan Shilling)' },
+            { value: 'UGX', label: 'UGX (Ugandan Shilling)' },
+            { value: 'RWF', label: 'RWF (Rwandan Franc)' },
+            { value: 'ZAR', label: 'ZAR (South African Rand)' },
+            { value: 'NGN', label: 'NGN (Nigerian Naira)' },
+            { value: 'GHS', label: 'GHS (Ghanaian Cedi)' },
+            { value: 'AED', label: 'AED (UAE Dirham)' },
+            { value: 'INR', label: 'INR (Indian Rupee)' },
+            { value: 'CNY', label: 'CNY (Chinese Yuan)' },
+            { value: 'JPY', label: 'JPY (Japanese Yen)' },
+            { value: 'CAD', label: 'CAD (Canadian Dollar)' },
+            { value: 'AUD', label: 'AUD (Australian Dollar)' }
+        ], this.state.currentCurrency, 'Select currency', 'app.handleSettingsCurrencyChange')}
+                   </div>
                 </div>
             </div>
         `;
@@ -6493,12 +7849,7 @@ const app = {
         // Ensure stat fonts are correct on initial render
         setTimeout(() => this.adjustStatFontSizes(), 200);
 
-        // Listen for history popstate
-        window.addEventListener('popstate', (e) => {
-            if (e.state && e.state.page) {
-                this.loadPage(e.state.page, false);
-            }
-        });
+
     },
 
     // Initialize Dashboard Module
@@ -6529,12 +7880,15 @@ const app = {
                 normalizedUrlPage = this.toRoleUrlPage(rolePrefix, initialPage);
             }
 
+            const urlParams = new URLSearchParams(window.location.search);
+            const op = urlParams.get('op');
+
             if (normalizedUrlPage && normalizedUrlPage !== urlPage) {
-                window.history.replaceState({ page: initialPage }, '', `?page=${normalizedUrlPage}`);
+                window.history.replaceState({ page: initialPage, op: op }, '', `?page=${normalizedUrlPage}${op ? `&op=${op}` : ''}`);
             }
 
             // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync
-            this.loadPage(initialPage, true, true, true);
+            this.loadPage(initialPage, true, true, true, op);
         }
     }
 };
