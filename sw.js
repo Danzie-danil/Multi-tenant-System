@@ -1,8 +1,9 @@
-const CACHE_NAME = 'nexus-bms-v38';
+const CACHE_NAME = 'nexus-bms-v42';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
     './manifest.json',
+    './bms-logo.jpeg',
     './css/index.css',
     './css/layout.css',
     './css/components.css',

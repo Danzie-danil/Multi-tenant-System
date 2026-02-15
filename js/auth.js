@@ -77,35 +77,39 @@ export const Auth = {
         return null;
     },
 
-    async loginBranch(loginId, password) {
+    async loginBranch(enterpriseEmail, loginId, password) {
         const { data, error } = await supabase.rpc('login_branch', {
-            p_login_id: loginId,
+            p_enterprise_email: enterpriseEmail,
+            p_branch_login_id: loginId,
             p_password: password
         });
 
         if (error) throw error;
-        if (!data) throw new Error('Invalid Branch ID or Password');
+        if (!data || data.length === 0) throw new Error('Invalid Enterprise Email, Branch ID, or Password');
+
+        // RPC returns a table (array), extract first row
+        const branchData = data[0];
 
         // Persist session first to allow RLS access
-        localStorage.setItem('bms-branch-token', data.api_token);
-        updateSupabaseClient({ 'x-branch-token': data.api_token });
+        localStorage.setItem('bms-branch-token', branchData.api_token);
+        updateSupabaseClient({ 'x-branch-token': branchData.api_token });
 
         // Fetch FULL branch details (RPC missing some fields like branch_login_id, theme)
         const { data: fullBranch, error: fetchError } = await supabase
             .from('branches')
             .select('*')
-            .eq('id', data.id)
+            .eq('id', branchData.id)
             .single();
 
         if (fetchError || !fullBranch) {
             // Fallback to partial data if fetch fails
-            this.branch = data;
+            this.branch = branchData;
             this.profile = {
-                id: data.id,
-                full_name: data.name,
+                id: branchData.id,
+                full_name: branchData.name,
                 role: 'branch_manager',
-                enterprise_id: data.enterprise_id,
-                branch_id: data.id,
+                enterprise_id: branchData.enterprise_id,
+                branch_id: branchData.id,
                 branch_login_id: loginId, // Fallback to input
                 theme: 'light',
                 currency: 'TZS'
@@ -202,7 +206,7 @@ export const Auth = {
                     .select('address, phone, email, currency')
                     .eq('id', data.enterprise_id)
                     .single();
-                
+
                 if (!entError && entData) {
                     this.profile = {
                         ...this.profile,

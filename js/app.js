@@ -21,7 +21,9 @@ const app = {
         idbReady: false,
         idbCache: {},
         idbQueue: [],
-        pagination: {}
+        pagination: {},
+        currentPage: 'home',
+        realtimeChannel: null
     },
 
     // Theme Management
@@ -113,6 +115,89 @@ const app = {
                 console.error("Error checking PIN status:", e);
                 this.state.hasSecurityPin = false;
             }
+        }
+
+        // Establish Realtime Subscriptions
+        this.setupRealtimeSubscriptions();
+    },
+
+    setupRealtimeSubscriptions() {
+        if (this.state.realtimeChannel) {
+            this.state.realtimeChannel.unsubscribe();
+        }
+
+        const profile = this.state.currentProfile;
+        if (!profile) return;
+
+        // Use a unique channel for this profile's branch/enterprise
+        const channelName = `live-sync-${profile.id}`;
+
+        // Subscribe to key tables
+        this.state.realtimeChannel = supabase
+            .channel(channelName)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'income' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'loans' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, (p) => this.handleRealtimeChange(p))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance' }, (p) => this.handleRealtimeChange(p))
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('✓ Realtime live sync active');
+                }
+            });
+    },
+
+    handleRealtimeChange(payload) {
+        const { table, eventType } = payload;
+        console.log(`[Realtime] ${eventType} in ${table}`);
+
+        // Map table to logical area
+        const tableToArea = {
+            'sales': 'sales',
+            'products': 'workspace',
+            'expenses': 'operations:expenses',
+            'income': 'operations:income',
+            'categories': 'organize',
+            'notes': 'operations:notes',
+            'customers': 'operations:customers',
+            'invoices': 'operations:invoices',
+            'loans': 'operations:loans',
+            'assets': 'operations:assets',
+            'maintenance': 'operations:maintenance'
+        };
+
+        const target = tableToArea[table];
+        if (!target) return;
+
+        const [page, op] = target.includes(':') ? target.split(':') : [target, null];
+
+        // If change is relevant to what's currently on screen, re-render
+        if (this.state.currentPage === page && (!op || this.state.activeOp === op)) {
+            // Debounce re-render slightly to avoid flickering on rapid changes
+            if (this._realtimeRenderTimeout) clearTimeout(this._realtimeRenderTimeout);
+            this._realtimeRenderTimeout = setTimeout(() => {
+                console.log(`[Realtime] Auto-refreshing current view: ${page}${op ? `/${op}` : ''}`);
+                // Force re-render without reloading the whole layout
+                if (page === 'operations') {
+                    this.renderOperations();
+                } else if (page === 'organize') {
+                    this.renderOrganizeModule(this.dom.contentArea);
+                } else if (page === 'workspace') {
+                    // If dashboard loaded, we can call its product loading
+                    if (window.location.hash.includes('products') || this.state.currentPage === 'workspace') {
+                        this.loadPage('workspace', false, true, true);
+                    }
+                } else {
+                    // Generic re-render for other modules
+                    this.loadPage(page, false, true, true, op);
+                }
+            }, 800);
         }
     },
 
@@ -764,6 +849,7 @@ const app = {
         // Branch Login
         this.dom.branchLoginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const enterpriseEmail = document.getElementById('branch-enterprise-email').value;
             const loginId = document.getElementById('branch-login-id').value;
             const password = document.getElementById('branch-login-password').value;
             const btn = e.target.querySelector('button[type="submit"]');
@@ -776,7 +862,7 @@ const app = {
 
                 this.hideMessage('auth-message');
 
-                const { id, name, enterprise_id, api_token, role } = await Auth.loginBranch(loginId, password);
+                const { id, name, enterprise_id, api_token, role } = await Auth.loginBranch(enterpriseEmail, loginId, password);
 
                 this.state.currentUser = { id: id, role: 'branch_manager' }; // Mock user object
                 this.state.currentProfile = Auth.profile;
@@ -796,7 +882,7 @@ const app = {
                 if (loadingScreen) loadingScreen.classList.add('hidden');
 
                 // Friendly error for branches
-                const message = "Invalid ID or Password. Please contact your admin for a new password.";
+                const message = "Invalid Enterprise Email, Branch ID, or Password. Please verify your credentials.";
                 this.showMessage('auth-message', message, 'error');
 
                 btn.textContent = 'Branch Login →';
@@ -1120,6 +1206,7 @@ const app = {
         branch: [
             { id: 'home', icon: '◈', label: 'Home' },
             { id: 'operations', icon: '⚡', label: 'Operations' },
+            { id: 'analytics', icon: '◆', label: 'Analytics' },
             { id: 'organize', icon: '📂', label: 'Organize' },
             { id: 'profile', icon: '👤', label: 'Profile' }
         ]
@@ -2230,6 +2317,7 @@ const app = {
     },
 
     loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false, op = null) {
+        this.state.currentPage = page;
         const profile = this.state.currentProfile;
         const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
 
@@ -2317,18 +2405,19 @@ const app = {
             this.loadPage('profile', false, true, true); // Redirect to profile
         } else if (page === 'workspace') {
             const title = role === 'admin' ? 'Workspace Module' : 'Products Module';
-            this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>${title}</h3><p class="text-muted">Coming Soon...</p></div>`;
+            this.dom.contentArea.innerHTML = `<div class="page-enter"><div class="card"><h3>${title}</h3><p class="text-muted">Coming Soon...</p></div></div>`;
         } else if (page === 'sales') {
-            this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Sales Module</h3><p class="text-muted">Coming Soon...</p></div>`;
+            this.dom.contentArea.innerHTML = `<div class="page-enter"><div class="card"><h3>Sales Module</h3><p class="text-muted">Coming Soon...</p></div></div>`;
         } else if (page === 'profile') {
             this.renderProfile();
-        } else if (page === 'analytics') {
-            this.dom.contentArea.innerHTML = `<div class="card page-enter"><h3>Analytics Module</h3><p class="text-muted">Coming Soon...</p></div>`;
         } else if (page === 'operations') {
             this.state.activeOp = op;
             this.renderOperations();
         } else if (page === 'organize') {
             this.renderOrganizeModule(this.dom.contentArea);
+        } else if (page === 'analytics') {
+            if (role === 'admin') this.renderAdminAnalytics(this.dom.contentArea);
+            else this.renderBranchAnalytics(this.dom.contentArea);
         }
 
         // Run font resizing after content is likely rendered
@@ -2409,10 +2498,548 @@ const app = {
         };
         window.removeEventListener('resize', this.state.dockResizeListener); // Remove old reference if exists? 
         // Better way: store listener in state and remove it in loadPage cleanup logic. 
-        // For now, simple add.
         window.addEventListener('resize', this.state.dockResizeListener);
 
         this.bindDockEvents();
+    },
+
+    async renderBranchAnalytics(canvas) {
+        this.dom.pageTitle.textContent = 'Analytics';
+        this.state.activeSelection = new Set();
+        canvas.innerHTML = this.getLoaderHTML();
+
+        try {
+            const [categories, products, tags, productTags] = await Promise.all([
+                this.fetchBranchCategories(),
+                this.fetchBranchProducts(),
+                this.fetchBranchTags(),
+                this.fetchAllItemTags('products')
+            ]);
+
+            canvas.innerHTML = `
+                <div class="page-enter">
+                    <div style="margin-bottom: 2rem;">
+                        <h3 style="margin-bottom: 0.5rem;">📊 Reports & Performance</h3>
+                        <p class="text-muted">Download operational reports and track product performance.</p>
+                    </div>
+
+                    <!-- Quick Reports Section -->
+                    <div class="card" style="margin-bottom: 2rem;">
+                        <div class="card-header">
+                            <h4 class="card-title">Quick Exports</h4>
+                        </div>
+                        <div class="grid-2-col" style="gap: 1rem; padding: 1rem;">
+                            <button class="btn-secondary" onclick="app.handleExportReport('daily')" style="justify-content: center;">📅 Daily Report (Sales)</button>
+                            <button class="btn-secondary" onclick="app.handleExportReport('monthly')" style="justify-content: center;">🗓️ Monthly Report (Sales)</button>
+                            <button class="btn-secondary" onclick="app.handleExportReport('expenses')" style="justify-content: center;">💸 Expenses Report</button>
+                            <button class="btn-secondary" onclick="app.handleExportReport('income')" style="justify-content: center;">📈 Income Report</button>
+                        </div>
+                    </div>
+
+                    <!-- Product Performance Section -->
+                    <div class="card">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                            <h4 class="card-title">Product Performance</h4>
+                            <div class="flex-gap" style="align-items: center;">
+                                <div id="analyticsSelectedCount" class="text-muted" style="font-size: 0.85rem;">0 selected</div>
+                                <button class="btn-danger btn-small" id="btnBulkDeleteAnalytics" disabled onclick="app.bulkDelete('analytics')">🗑️ Delete Selected</button>
+                                <button class="btn-small" id="btnBulkTagAnalytics" disabled onclick="app.bulkApplyTag('analytics')" style="background:#1f2937;color:#e5e7eb;border:1px solid #374151;">📌 Apply Tag</button>
+                            </div>
+                        </div>
+                        
+                        <div class="selection-control" style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="checkbox" id="selectAll_analytics" onchange="app.toggleAllSelect('analytics')">
+                            <label for="selectAll_analytics" style="font-weight: 600; cursor: pointer;">Select All</label>
+                        </div>
+
+                        <div id="analytics-performance-list" class="item-list">
+                            ${this.renderAnalyticsPerformanceList(products, categories, tags, productTags)}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Bind individual selection logic to use 'analytics' type
+            // Note: We reuse 'products' for bulk actions since the data is products
+        } catch (error) {
+            console.error('Failed to render analytics:', error);
+            canvas.innerHTML = `<div class="card p-4 text-danger">Error loading analytics: ${error.message}</div>`;
+        }
+    },
+
+    renderAnalyticsPerformanceList(products, categories, tags, productTags) {
+        if (products.length === 0) return '<div class="text-muted p-4">No data available.</div>';
+
+        return products.slice().sort((a, b) => b.id - a.id).map(p => {
+            const category = categories.find(c => c.id === p.categoryId);
+            const catName = category ? category.name : 'Uncategorized';
+            const isService = p.itemType === 'service' || !p.stock;
+            const stockText = isService ? 'Service (no stock)' : `${p.stock} units`;
+
+            // Margin calc: ((Sell - Cost) / Sell) * 100
+            const marginVal = p.sellingPrice ? ((p.sellingPrice - (p.costPrice || 0)) / p.sellingPrice) * 100 : 0;
+            const margin = marginVal.toFixed(1);
+            const profit = (p.sellingPrice || 0) - (p.costPrice || 0);
+
+            // Tags
+            const pTags = productTags.filter(pt => pt.product_id === p.id);
+            const tagUnix = pTags.map(pt => {
+                const tagInfo = tags.find(t => t.name === pt.tag);
+                return tagInfo ?
+                    `<span class="badge" style="background:${tagInfo.color}20; color:${tagInfo.color}; border:1px solid ${tagInfo.color}; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${tagInfo.name}</span>`
+                    : `<span class="badge" style="background:#eee; color:#333; padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px;">${pt.tag}</span>`;
+            }).join('');
+
+            return `
+                <div class="item" data-product-id="${p.id}" style="padding: 1.25rem;">
+                    <div style="display: flex; gap: 15px; align-items: start;">
+                        <input type="checkbox" class="checkbox-select analytics-checkbox" value="${p.id}" onchange="app.toggleSelect('analytics', '${p.id}')">
+                        <div style="flex: 1;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                                <div>
+                                    <div class="item-title" style="font-size: 1.1rem; font-weight: 700;">${p.name}</div>
+                                    <div class="item-subtitle" style="font-size: 0.85rem; color: var(--text-muted);">
+                                        Category: ${catName} | ${stockText}
+                                    </div>
+                                    <div style="font-size: 0.9rem; margin-top: 0.25rem; font-weight: 500; color: var(--text-main);">Margin: ${margin}%</div>
+                                    ${tagUnix ? `<div style="margin-top:6px; display: flex; flex-wrap: wrap; gap: 4px;">${tagUnix}</div>` : ''}
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+                                <div style="display: flex; gap: 1.5rem; font-size: 0.9rem;">
+                                    <span>Cost: <span style="font-weight: 600;">${this.formatCurrency(p.costPrice || 0)}</span></span>
+                                    <span>Price: <span style="font-weight: 600;">${this.formatCurrency(p.sellingPrice || 0)}</span></span>
+                                </div>
+                                <span style="color: #4ecdc4; font-weight: 700; font-size: 1rem;">+${this.formatCurrency(profit)}</span>
+                            </div>
+
+                            <div class="flex-gap" style="margin-top: 1.25rem;">
+                                <button class="btn-small btn-ghost" onclick="app.showEditProductModal('${p.id}')" style="border: 1px solid var(--border);">Edit ✏️</button>
+                                <button class="btn-small btn-danger" onclick="app.deleteProductIndex('${p.id}')">Delete</button>
+                                <button class="btn-small" style="background:#1f2937;color:#e5e7eb;border:1px solid #374151;" onclick="app.openItemTagsModal('products', '${p.id}')">📌 Tag</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    async handleExportReport(type) {
+        this.showToast(`Fetching data for ${type} report...`, 'info');
+
+        try {
+            let data = [];
+            let filename = '';
+            const profile = this.state.currentProfile;
+            const bid = profile?.branch_id || profile?.id;
+            let summaryMetrics = {}; // Declare summaryMetrics here
+
+            // --- data fetching & mapping ---
+            // --- data fetching & mapping ---
+            if (type === 'daily' || type === 'monthly') {
+                const now = new Date();
+                let start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                if (type === 'monthly') start = new Date(now.getFullYear(), now.getMonth(), 1);
+                const startIso = start.toISOString();
+
+                // Fetch SALES, EXPENSES, and INCOME in parallel
+                const [salesRes, expensesRes, incomeRes] = await Promise.all([
+                    supabase.from('sales').select('*').gte('created_at', startIso),
+                    supabase.from('expenses').select('*').gte('created_at', startIso).eq('branch_id', bid),
+                    supabase.from('income').select('*').gte('created_at', startIso).eq('branch_id', bid)
+                ]);
+
+                if (salesRes.error) throw salesRes.error;
+                if (expensesRes.error) throw expensesRes.error;
+                if (incomeRes.error) throw incomeRes.error;
+
+                const sales = salesRes.data;
+                const expenses = expensesRes.data;
+                const income = incomeRes.data;
+
+                // --- CALCULATION ---
+                const totalSalesCount = sales.length;
+                const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0);
+                // Groos Profit from Sales
+                const grossProfit = sales.reduce((sum, s) => {
+                    const cost = s.cost_price || 0;
+                    const revenue = s.total || 0;
+                    return sum + (revenue - (cost * (s.quantity || 1)));
+                }, 0);
+
+                const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+                const totalIncome = income.reduce((sum, i) => sum + (i.amount || 0), 0);
+
+                // Net Profit = Gross Profit + Other Income - Expenses
+                const netProfit = grossProfit + totalIncome - totalExpenses;
+
+                // --- MAPPING DATA FOR PDF TABLES ---
+
+                // 1. Sales Data
+                const salesRows = sales.map(s => {
+                    const cost = s.cost_price || 0;
+                    const profit = (s.total || 0) - (cost * (s.quantity || 1));
+                    return {
+                        Time: new Date(s.created_at).toLocaleTimeString(),
+                        Item: s.product_name || 'Item',
+                        Qty: s.quantity || 0,
+                        Price: this.formatCurrency(s.price || 0),
+                        Total: this.formatCurrency(s.total || 0),
+                        Profit: this.formatCurrency(profit)
+                    };
+                });
+
+                // 2. Expenses Data
+                const expensesRows = expenses.map(e => ({
+                    Time: new Date(e.created_at).toLocaleTimeString(),
+                    Category: e.category,
+                    Amount: this.formatCurrency(e.amount || 0),
+                    Note: e.note || ''
+                }));
+
+                // 3. Income Data
+                const incomeRows = income.map(i => ({
+                    Time: new Date(i.created_at).toLocaleTimeString(),
+                    Source: i.source,
+                    Amount: this.formatCurrency(i.amount || 0),
+                    Note: i.note || ''
+                }));
+
+                // Combine into a structured object for the Generator
+                data = {
+                    sales: salesRows,
+                    expenses: expensesRows,
+                    income: incomeRows
+                };
+
+                // Summary Metrics
+                summaryMetrics = {
+                    title: type === 'daily' ? "TODAY'S FINANCIAL SUMMARY" : "MONTHLY FINANCIAL SUMMARY",
+                    left: [
+                        `Total Sales: ${totalSalesCount}`,
+                        `Gross Revenue: ${this.formatCurrency(totalRevenue)}`,
+                        `Gross Profit: ${this.formatCurrency(grossProfit)}`
+                    ],
+                    right: [
+                        `Other Income: ${this.formatCurrency(totalIncome)}`,
+                        `Expenses: ${this.formatCurrency(totalExpenses)}`,
+                        `Net Profit: ${this.formatCurrency(netProfit)}`
+                    ],
+                    status: netProfit > 0 ? "Status: Profitable" : "Status: Loss"
+                };
+
+                filename = `BMS_${type}_report_${now.toISOString().split('T')[0]}.pdf`; // Placeholder, handled in generator logic really
+
+            } else if (type === 'expenses') {
+                const { data: expenses, error } = await supabase.from('expenses').select('*').eq('branch_id', bid);
+                if (error) throw error;
+
+                const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+                data = expenses.map(e => ({
+                    Date: new Date(e.created_at).toLocaleString(),
+                    Category: e.category,
+                    Amount: this.formatCurrency(e.amount || 0),
+                    Note: e.note || ''
+                }));
+
+                summaryMetrics = {
+                    title: "EXPENSE SUMMARY",
+                    left: [`Total Records: ${expenses.length}`],
+                    right: [`Total Expenses: ${this.formatCurrency(totalAmount)}`],
+                    status: ""
+                };
+            } else if (type === 'income') {
+                const { data: income, error } = await supabase.from('income').select('*').eq('branch_id', bid);
+                if (error) throw error;
+
+                const totalAmount = income.reduce((sum, i) => sum + (i.amount || 0), 0);
+
+                data = income.map(i => ({
+                    Date: new Date(i.created_at).toLocaleString(),
+                    Source: i.source,
+                    Amount: this.formatCurrency(i.amount || 0),
+                    Note: i.note || ''
+                }));
+
+                summaryMetrics = {
+                    title: "INCOME SUMMARY",
+                    left: [`Total Records: ${income.length}`],
+                    right: [`Total Income: ${this.formatCurrency(totalAmount)}`],
+                    status: ""
+                };
+            }
+
+            if (data.length === 0) {
+                this.showToast('No data found for this report period', 'info');
+                return;
+            }
+
+            // --- Report Preparation (Styling & Summary Metrics) ---
+            let headers = [];
+            let rows = [];
+
+            if (Array.isArray(data)) {
+                headers = Object.keys(data[0]);
+                rows = data.map(obj => headers.map(h => obj[h]));
+            } else {
+                // Multi-table object, pass as is
+                rows = data;
+            }
+
+            const bidStr = profile?.branch_id ? profile.branch_id.toString().slice(0, 8) : 'Unknown';
+            const pdfFilename = `${type}_report_${bidStr}.pdf`;
+            const reportTitle = type === 'daily' ? 'Daily Report'
+                : type === 'monthly' ? 'Monthly Report'
+                    : type.charAt(0).toUpperCase() + type.slice(1) + ' Report';
+
+            await this.generatePDFReport(reportTitle, headers, rows, pdfFilename, { summaryMetrics });
+            this.showToast('Report downloaded successfully', 'success');
+        } catch (error) {
+            this.showToast('Export failed: ' + error.message, 'error');
+        }
+    },
+
+    async generatePDFReport(title, headers, data, filename, options = {}) {
+        const prof = this.state.currentProfile;
+        const branchName = prof?.branchName || prof?.branch_name || prof?.full_name || 'Business Management System';
+        const bizAddress = prof?.address || '';
+        const bizPhone = prof?.phone || '';
+        const bizEmail = prof?.email || '';
+        const bizTin = prof?.tin || ''; // Placeholder if TIN is added later
+
+        // Helper to load scripts sequentially to avoid race conditions
+        const loadScript = (url) => new Promise((res, rej) => {
+            if (Array.from(document.querySelectorAll('script')).some(s => s.src === url)) return res();
+            const s = document.createElement('script');
+            s.src = url;
+            s.onload = res;
+            s.onerror = rej;
+            document.head.appendChild(s);
+        });
+
+        // Load jsPDF first, THEN autotable
+        if (!window.jspdf) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+        if (!window.jspdfAutotable || typeof window.jspdf.jsPDF.prototype.autoTable === 'undefined') {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.width;
+        let yPos = 20;
+
+        // --- 1. CENTERED HEADER (Business Info) ---
+        // Grey background for header area (optional, cleaner white in reference but let's stick to clean)
+        // doc.setFillColor(240, 240, 240);
+        // doc.rect(0, 0, pageWidth, 40, 'F');
+
+        // Business Name
+        doc.setFontSize(22);
+        doc.setTextColor(0, 0, 0); // Black
+        doc.setFont('helvetica', 'bold');
+        doc.text(branchName.toUpperCase(), pageWidth / 2, yPos, { align: 'center' });
+        yPos += 7;
+
+        // Address / Contact
+        doc.setFontSize(9);
+        doc.setTextColor(50, 50, 50);
+        doc.setFont('helvetica', 'normal');
+        const contactLine = `${bizAddress} | ${bizPhone} | ${bizEmail}`;
+        doc.text(contactLine, pageWidth / 2, yPos, { align: 'center' });
+        yPos += 5;
+
+        // TIN / License
+        doc.text(bizTin, pageWidth / 2, yPos, { align: 'center' });
+        yPos += 8;
+
+        // Thick Separation Line
+        doc.setLineWidth(1.5);
+        doc.setDrawColor(150, 150, 150); // Grey
+        doc.line(14, yPos, pageWidth - 14, yPos);
+        yPos += 10;
+
+        // --- 2. REPORT TITLE & DATE ---
+        doc.setFontSize(16);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'bold');
+        doc.text(title, 14, yPos);
+        yPos += 6;
+
+        doc.setFontSize(10);
+        doc.setTextColor(100, 100, 100);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Date: ${new Date().toISOString().split('T')[0]}`, 14, yPos);
+        yPos += 10;
+
+        // --- 3. SUMMARY BOX (Rounded Rectangle) ---
+        if (options.summaryMetrics) {
+            const sm = options.summaryMetrics;
+            const boxHeight = 45;
+            const boxY = yPos;
+
+            // Background Box
+            doc.setFillColor(238, 238, 238); // #EEEEEE
+            doc.setDrawColor(180, 180, 180);
+            doc.roundedRect(14, boxY, pageWidth - 28, boxHeight, 3, 3, 'FD');
+
+            // Box Content
+            let contentY = boxY + 8;
+
+            // Box Title
+            doc.setFontSize(10);
+            doc.setTextColor(0, 0, 0);
+            doc.setFont('helvetica', 'bold');
+            doc.text(sm.title || 'SUMMARY', 20, contentY);
+            contentY += 8;
+
+            // Two Columns: Left (Sales/Rev/Profit) & Right (Inc/Exp/Net)
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+
+            // Left Column
+            if (sm.left) {
+                sm.left.forEach((line, idx) => {
+                    doc.text(line, 20, contentY + (idx * 6));
+                });
+            }
+
+            // Right Column
+            if (sm.right) {
+                sm.right.forEach((line, idx) => {
+                    doc.text(line, pageWidth / 2 + 10, contentY + (idx * 6));
+                });
+            }
+
+            // Status (Centered Bottom)
+            if (sm.status) {
+                doc.setFont('courier', 'bold'); // Monospaced for 'code-like' look
+                doc.setTextColor(50, 50, 50);
+                doc.text(sm.status, pageWidth / 2, boxY + boxHeight - 6, { align: 'center' });
+            }
+
+            yPos = boxY + boxHeight + 12;
+        }
+
+        // --- 4. DATA TABLE(S) ---
+
+        let tablesToRender = [];
+
+        if (Array.isArray(data)) {
+            // Single table (legacy behavior or specific reports like 'Expenses Only')
+            tablesToRender.push({ title: title.replace('Report', '') + ' Details', data: data });
+        } else {
+            // Multi-table report (Daily/Monthly)
+            if (data.sales && data.sales.length > 0) tablesToRender.push({ title: 'Sales Details', data: data.sales });
+            if (data.income && data.income.length > 0) tablesToRender.push({ title: 'Income Details', data: data.income });
+            if (data.expenses && data.expenses.length > 0) tablesToRender.push({ title: 'Expense Details', data: data.expenses });
+        }
+
+        for (const tbl of tablesToRender) {
+            const tData = tbl.data;
+            const tHeaders = Object.keys(tData[0]);
+            const tRows = tData.map(obj => tHeaders.map(h => obj[h]));
+
+            // Title before table
+            // Check if we need a page break? autoTable handles it usually, but title might be orphaned.
+            // A simple check: if yPos > pageHeight - 40, add page.
+            if (yPos > doc.internal.pageSize.height - 40) {
+                doc.addPage();
+                yPos = 20;
+            }
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(0, 0, 0);
+            doc.text(tbl.title, 14, yPos);
+            yPos += 4;
+
+            // AutoTable
+            doc.autoTable({
+                head: [tHeaders],
+                body: tRows,
+                startY: yPos,
+                theme: 'striped',
+                headStyles: {
+                    fillColor: [80, 80, 80], // Dark Grey #505050
+                    textColor: 255,
+                    fontStyle: 'bold'
+                    // Removed forced halign: center to allow override
+                },
+                bodyStyles: {
+                    textColor: 50,
+                    cellPadding: 3
+                },
+                alternateRowStyles: {
+                    fillColor: [248, 248, 248]
+                },
+                columnStyles: {
+                    0: { halign: 'left' }
+                },
+                margin: { left: 14, right: 14 },
+                styles: { fontSize: 9 },
+                didParseCell: (data) => {
+                    const header = data.column.raw;
+                    if (typeof header === 'string') {
+                        const h = header.toLowerCase();
+                        if (h.includes('price') || h.includes('total') || h.includes('profit') || h.includes('amount') || h.includes('revenue') || h.includes('cost')) {
+                            data.cell.styles.halign = 'right';
+                        } else if (h === 'qty' || h === 'quantity') {
+                            data.cell.styles.halign = 'center';
+                        } else {
+                            data.cell.styles.halign = 'left';
+                        }
+                    }
+                },
+                didDrawPage: (data) => {
+                    doc.setFontSize(8);
+                    doc.setTextColor(150);
+                    const pageCount = doc.internal.getNumberOfPages();
+                    doc.text(`Page ${pageCount}`, pageWidth - 20, doc.internal.pageSize.height - 10, { align: 'right' });
+                }
+            });
+
+            yPos = doc.lastAutoTable.finalY + 10;
+        }
+
+        // --- 5. TOTALS ROW (Custom addition) ---
+        let finalY = doc.lastAutoTable.finalY + 2;
+
+        // Simple Total Box
+        doc.setFillColor(245, 245, 245);
+        doc.setDrawColor(200, 200, 200);
+        doc.roundedRect(14, finalY, pageWidth - 28, 10, 1, 1, 'FD');
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0, 0, 0);
+        doc.text("Totals", pageWidth / 2, finalY + 7, { align: 'center' });
+
+        // If we have a profit total from summary, allow showing it on right
+        if (options.summaryMetrics && options.summaryMetrics.left) {
+            // Extract "Profit" value from summary text for display if it exists
+            const profitLine = options.summaryMetrics.left.find(l => l.includes('Profit:'));
+            if (profitLine) {
+                const val = profitLine.split(':')[1].trim();
+                doc.text(val, pageWidth - 20, finalY + 7, { align: 'right' });
+            }
+        }
+
+        doc.save(filename);
+    },
+
+    async renderAdminAnalytics(canvas) {
+        this.dom.pageTitle.textContent = 'Admin Analytics';
+        canvas.innerHTML = `
+            <div class="page-enter">
+                <div class="card">
+                    <h3>Enterprise Analytics</h3>
+                    <p class="text-muted">Coming Soon: Consolidated metrics for all branches.</p>
+                </div>
+            </div>
+        `;
     },
 
     async loadRecentActivityFeed() {
@@ -2422,13 +3049,13 @@ const app = {
         try {
             // Fetch recent items from multiple tables in parallel
             const [salesRes, expensesRes, incomeRes, notesRes] = await Promise.all([
-                supabase.from('sales').select('id, created_at, product_name, total').order('created_at', { ascending: false }).limit(5),
-                supabase.from('expenses').select('id, created_at, title, amount').order('created_at', { ascending: false }).limit(5),
-                supabase.from('income').select('id, created_at, source, amount').order('created_at', { ascending: false }).limit(5),
-                supabase.from('notes').select('id, created_at, title').order('created_at', { ascending: false }).limit(5)
+                supabase.from('sales').select('id, created_at, product_name, total').order('created_at', { ascending: false }).limit(1),
+                supabase.from('expenses').select('id, created_at, title, amount').order('created_at', { ascending: false }).limit(1),
+                supabase.from('income').select('id, created_at, source, amount').order('created_at', { ascending: false }).limit(1),
+                supabase.from('notes').select('id, created_at, title').order('created_at', { ascending: false }).limit(1)
             ]);
 
-            // Normalize into a unified format
+            // Normalize into a unified format - only ONE recent item per module
             const items = [];
 
             (salesRes.data || []).forEach(r => items.push({
@@ -2459,9 +3086,9 @@ const app = {
                 date: r.created_at
             }));
 
-            // Sort by date descending, take top 15
+            // Sort by date descending (showing only most recent per module)
             items.sort((a, b) => new Date(b.date) - new Date(a.date));
-            const recent = items.slice(0, 15);
+            const recent = items;
 
             if (recent.length === 0) {
                 feed.innerHTML = `
@@ -3883,12 +4510,11 @@ const app = {
     },
 
     // Bulk Actions & Selection
-    toggleSelectAll(type) {
+    toggleAllSelect(type) {
         const selectAll = document.getElementById(`selectAll_${type}`);
         if (!selectAll) return;
         const checked = selectAll.checked;
         const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
-
         checkboxes.forEach(cb => {
             cb.checked = checked;
             this._updateSelectionState(type, cb.value, checked);
@@ -3955,7 +4581,7 @@ const app = {
 
             for (const id of ids) {
                 try {
-                    if (type === 'products') await this.deleteBranchProduct(id);
+                    if (type === 'products' || type === 'analytics') await this.deleteBranchProduct(id);
                     else if (type === 'sales') await supabase.from('sales').delete().eq('id', id);
                     else if (type === 'expenses') await this.deleteBranchExpense(id);
                     else if (type === 'income') await this.deleteBranchRow('income', 'income', id);
@@ -3984,6 +4610,7 @@ const app = {
         // Map module names to their respective tag tables
         const maps = {
             'products': 'product_tags',
+            'analytics': 'product_tags',
             'expenses': 'expense_tags',
             'income': 'income_tags',
             'sales': 'sale_tags',
@@ -3996,6 +4623,7 @@ const app = {
         // Map module names to their ID field in the tag table
         const maps = {
             'products': 'product_id',
+            'analytics': 'product_id',
             'expenses': 'expense_id',
             'income': 'income_id',
             'sales': 'sale_id',
@@ -4064,6 +4692,13 @@ const app = {
     refreshModuleList(module) {
         const canvas = document.getElementById('ops-canvas') || this.dom.contentArea;
         if (canvas) {
+            if (module === 'analytics' || this.state.currentPage === 'analytics') {
+                const profile = this.state.currentProfile;
+                const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
+                if (role === 'admin') this.renderAdminAnalytics(this.dom.contentArea);
+                else this.renderBranchAnalytics(this.dom.contentArea);
+                return;
+            }
             // Logic to refresh the current view
             // If we're in operations, setActiveOp will re-render the module
             if (this.state.activeOp) {
@@ -6694,17 +7329,16 @@ const app = {
 
         this.fetchBranchCustomers().then((customers) => {
             const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 10);
-            const rows = pagedCustomers.map(customer => `
-    < tr >
+            const rows = pagedCustomers.map(customer => `<tr class="customer-item" data-customer-id="${customer.id}">
                     <td data-label="Name">${customer.name}</td>
                     <td data-label="Phone">${customer.phone || '-'}</td>
                     <td data-label="Email">${customer.email || '-'}</td>
                     <td data-label="Address">${customer.address || '-'}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Customers</h3>
@@ -6815,20 +7449,20 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
-            const customerOptions = customers.map(cust => `< option value = "${cust.id}" > ${cust.name}</option > `).join('');
+            const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
             const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 10);
             const rows = pagedInvoices.map(inv => `
-    < tr >
+<tr>
                     <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
                     <td data-label="Invoice">${inv.invoiceNumber}</td>
                     <td data-label="Customer">${inv.customerName || '-'}</td>
                     <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
                     <td data-label="Status">${inv.status}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Invoices & Receivables</h3>
@@ -6968,16 +7602,16 @@ const app = {
         this.fetchBranchReports().then((reports) => {
             const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 10);
             const rows = pagedReports.map(report => `
-    < tr >
+<tr>
                     <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
                     <td data-label="Type">${report.type}</td>
                     <td data-label="Period">${report.period}</td>
                     <td data-label="Note">${report.note || '-'}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Reports</h3>
@@ -7093,17 +7727,17 @@ const app = {
         this.fetchBranchLoans().then((loans) => {
             const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 10);
             const rows = pagedLoans.map(loan => `
-    < tr >
+<tr>
                     <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
                     <td data-label="Borrower">${loan.borrower}</td>
                     <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
                     <td data-label="Status">${loan.status}</td>
                     <td data-label="Due">${loan.dueDate || '-'}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Loans</h3>
@@ -7231,17 +7865,16 @@ const app = {
 
         this.fetchBranchAssets().then((assets) => {
             const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 10);
-            const rows = pagedAssets.map(asset => `
-    < tr >
+            const rows = pagedAssets.map(asset => `<tr>
                     <td data-label="Name">${asset.name}</td>
                     <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
                     <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
                     <td data-label="Condition">${asset.condition || '-'}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Assets</h3>
@@ -7358,17 +7991,17 @@ const app = {
         this.fetchBranchMaintenance().then((maintenance) => {
             const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 10);
             const rows = pagedMaintenance.map(entry => `
-    < tr >
+<tr>
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${entry.title}</td>
                     <td data-label="Asset">${entry.asset || '-'}</td>
                     <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
                     <td data-label="Status">${entry.status}</td>
-                </tr >
+                </tr>
     `).join('');
 
             canvas.innerHTML = `
-    < div class="page-enter" >
+<div class="page-enter">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Maintenance</h3>
@@ -7555,18 +8188,41 @@ const app = {
         const displayEmail = user?.email || (role === 'branch' ? `${profile?.id || 'branch'} @bms` : 'N/A');
 
         let content = `
-<div class="card page-enter" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
-    <div class="card-header" style="text-align: center; display: block; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
-        <div style="font-size: 4rem; margin-bottom: 1rem; animation: float 6s ease-in-out infinite;">👤</div>
-        <h2 class="gradient-text" style="font-size: 2rem; margin-bottom: 0.5rem;">${displayName}</h2>
-        <span class="badge ${role === 'admin' ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.9rem; padding: 0.4rem 1rem;">
-            ${displayRole}
-        </span>
-        ${role === 'branch' ? `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.9rem;">Branch ID: ${profile.branch_login_id || 'N/A'}</div>` : ''}
-    </div>
+<div class="page-enter">
+    <div class="card" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
+        <div class="card-header" style="position: relative; text-align: center; display: block; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
+            <!-- Actions Container -->
+            <div style="position: absolute; top: 0; right: 0; display: flex; gap: 0.25rem; background: var(--bg-surface-elevated); padding: 0.3rem; border-radius: var(--radius-squircle); border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+                <button id="btn-export-data" class="btn-ghost" style="padding: 0.4rem 0.8rem; height: auto; border: none; display: flex; align-items: center; gap: 0.4rem; color: var(--text-main);" title="Backup Data">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span style="font-size: 0.85rem; font-weight: 500;">Export</span>
+                </button>
+                <div style="width: 1px; background: var(--border); margin: 4px 0;"></div>
+                <button id="btn-import-data" class="btn-ghost" style="padding: 0.4rem 0.8rem; height: auto; border: none; display: flex; align-items: center; gap: 0.4rem; color: var(--text-main);" title="Restore Data">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span style="font-size: 0.85rem; font-weight: 500;">Import</span>
+                </button>
+                <input type="file" id="file-import-data" accept=".json" style="display: none;">
+            </div>
 
-    <div style="display: grid; gap: 2rem;">
-        `;
+            <div style="font-size: 4rem; margin-bottom: 1rem; animation: float 6s ease-in-out infinite;">👤</div>
+            <h2 class="gradient-text" style="font-size: 2rem; margin-bottom: 0.5rem;">${displayName}</h2>
+            <span class="badge ${role === 'admin' ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.9rem; padding: 0.4rem 1rem;">
+                ${displayRole}
+            </span>
+            ${role === 'branch' ? `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.9rem;">Branch ID: ${profile.branch_login_id || 'N/A'}</div>` : ''}
+        </div>
+
+        <div style="display: grid; gap: 2rem;">
+            `;
 
         // 1. Appearance (Theme)
         content += `
@@ -7778,7 +8434,7 @@ const app = {
         </div>
         `;
 
-        content += `</div></div>`; // Close grid and card
+        content += `</div></div></div>`; // Close grid, card, and page-enter
 
         this.dom.contentArea.innerHTML = content;
 
@@ -7869,11 +8525,27 @@ const app = {
                     } catch (err) {
                         console.error(err);
                         this.showToast('Failed to save details', 'error');
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save Details';
                     } finally {
                         saveBtn.textContent = 'Save Details';
                         saveBtn.disabled = false;
                     }
                 });
+            }
+
+            // --- Data Export/Import Handlers ---
+            const btnExport = document.getElementById('btn-export-data');
+            const btnImport = document.getElementById('btn-import-data');
+            const fileInput = document.getElementById('file-import-data');
+
+            if (btnExport) {
+                btnExport.addEventListener('click', () => this.handleExportData());
+            }
+
+            if (btnImport && fileInput) {
+                btnImport.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', (e) => this.handleImportData(e));
             }
 
             // Admin Logic
@@ -8041,6 +8713,126 @@ const app = {
 
     },
 
+    async handleExportData() {
+        if (!await this.confirmAsync('Download a full backup of your data?', 'info', 'Export Data')) return;
+
+        try {
+            this.showToast('Preparing backup...', 'info');
+            const profile = this.state.currentProfile;
+            const branchId = profile.branch_id || profile.id; // Correct ID for queries
+
+            // Helper for fetching
+            const fetchTable = async (table) => {
+                const { data, error } = await supabase.from(table).select('*').eq('branch_id', branchId);
+                if (error) throw error;
+                return data;
+            };
+
+            const [sales, expenses, income, products, categories, notes, customers, invoices, loans, assets, maintenance] = await Promise.all([
+                fetchTable('sales'),
+                fetchTable('expenses'),
+                fetchTable('income'),
+                fetchTable('products'),
+                fetchTable('categories'),
+                fetchTable('notes'),
+                fetchTable('customers'),
+                fetchTable('invoices'),
+                fetchTable('loans'),
+                fetchTable('assets'),
+                fetchTable('maintenance')
+            ]);
+
+            const exportObj = {
+                timestamp: new Date().toISOString(),
+                branchId: branchId,
+                version: '1.0',
+                data: {
+                    sales, expenses, income, products, categories, notes, customers, invoices, loans, assets, maintenance
+                }
+            };
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            const dateStr = new Date().toISOString().split('T')[0];
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", `BMS_Backup_${branchId.toString().slice(0, 8)}_${dateStr}.json`);
+            document.body.appendChild(downloadAnchorNode); // required for firefox
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+
+            this.showToast('Backup downloaded successfully', 'success');
+        } catch (error) {
+            console.error('Export error:', error);
+            this.showToast('Export failed: ' + error.message, 'error');
+        }
+    },
+
+    async handleImportData(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!await this.confirmAsync('Restore data from this backup? Existing records will be updated, and new ones added. This cannot be undone.', 'warning', 'Restore Data')) {
+            event.target.value = ''; // Reset
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                this.showToast('Restoring data...', 'info');
+                const json = JSON.parse(e.target.result);
+
+                if (!json.data || !json.branchId) {
+                    throw new Error('Invalid backup file format');
+                }
+
+                const profile = this.state.currentProfile;
+                const currentBranchId = profile.branch_id || profile.id;
+
+                // Helper for upserting
+                const upsertTable = async (table, rows) => {
+                    if (!rows || rows.length === 0) return;
+
+                    // Force current branch_id to allow migration/cloning use case.
+                    const sanitized = rows.map(r => ({
+                        ...r,
+                        branch_id: currentBranchId
+                    }));
+
+                    const { error } = await supabase.from(table).upsert(sanitized);
+                    if (error) throw error;
+                };
+
+                // Sequential upsert to minimize FK errors
+                await upsertTable('categories', json.data.categories);
+                await upsertTable('products', json.data.products);
+                await upsertTable('customers', json.data.customers);
+
+                // Then concurrent chunks
+                await Promise.all([
+                    upsertTable('sales', json.data.sales),
+                    upsertTable('expenses', json.data.expenses),
+                    upsertTable('income', json.data.income),
+                    upsertTable('notes', json.data.notes),
+                    upsertTable('invoices', json.data.invoices),
+                    upsertTable('loans', json.data.loans),
+                    upsertTable('assets', json.data.assets),
+                    upsertTable('maintenance', json.data.maintenance)
+                ]);
+
+                this.showToast('Data restored successfully!', 'success');
+                setTimeout(() => window.location.reload(), 1500); // Reload to reflect changes
+
+            } catch (error) {
+                console.error('Import error:', error);
+                this.showToast('Import failed: ' + error.message, 'error');
+            } finally {
+                event.target.value = ''; // Reset input
+            }
+        };
+        reader.readAsText(file);
+    },
+
     resetState() {
         this.state.currentUser = null;
         this.state.currentProfile = null;
@@ -8088,7 +8880,8 @@ const app = {
         const profile = this.state.currentProfile;
         if (profile?.role === 'enterprise_admin') {
             this.dom.contentArea.innerHTML = `
-    < div class="welcome-card card page-enter" onclick = "event.stopPropagation(); this.classList.toggle('expanded')" style = "animation-delay: 0.05s; margin-bottom: 2rem; cursor: pointer; transition: all 0.3s ease;" >
+    <div class="page-enter">
+        <div class="welcome-card card" onclick="event.stopPropagation(); this.classList.toggle('expanded')" style="animation-delay: 0.05s; margin-bottom: 2rem; cursor: pointer; transition: all 0.3s ease;">
                     <div class="card-header" style="border-bottom: none; padding-bottom: 0;">
                         <h3 class="card-title">Welcome back, ${profile.full_name || 'Admin'}!</h3>
                         <span class="hint-text mobile-hint" style="font-size: 0.7rem; color: var(--text-muted); float: right;">Click for Options</span>
@@ -8108,9 +8901,9 @@ const app = {
                             </button>
                         </div>
                     </div>
-                </div >
+                </div>
 
-    <div class="stats-grid page-enter">
+    <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">Total Branches</div>
             <div class="stat-value" id="stat-branches">--</div>
@@ -8129,16 +8922,19 @@ const app = {
         </div>
     </div>
 
+</div>
 `;
         } else {
             this.dom.contentArea.innerHTML = `
-    < div class="card page-enter" >
+<div class="page-enter">
+    <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Branch Dashboard</h3>
                     </div>
                     <p style="color: var(--text-muted);">Welcome to <strong style="color: var(--text-main);">${profile?.full_name || 'your branch'}</strong>.</p>
                     <p style="color: var(--text-muted);">Access your tasks and sales using the sidebar navigation.</p>
                 </div>
+</div>
             `;
         }
     },
@@ -8163,7 +8959,8 @@ const app = {
         // Missing Profile Handling
         if (!profile) {
             this.dom.contentArea.innerHTML = `
-    < div class="card page-enter" style = "max-width: 500px; margin: 2rem auto;" >
+<div class="page-enter">
+    <div class="card" style="max-width: 500px; margin: 2rem auto;">
                     <div class="card-header">
                         <h3 class="card-title">Complete Your Setup</h3>
                     </div>
@@ -8181,6 +8978,7 @@ const app = {
                         <button type="submit" class="btn-primary">Finalize Setup →</button>
                     </form>
                 </div>
+</div>
             `;
 
             setTimeout(() => {
@@ -8257,7 +9055,7 @@ const app = {
             const op = urlParams.get('op');
 
             if (normalizedUrlPage && normalizedUrlPage !== urlPage) {
-                window.history.replaceState({ page: initialPage, op: op }, '', `? page = ${normalizedUrlPage}${op ? `&op=${op}` : ''} `);
+                window.history.replaceState({ page: initialPage, op: op }, '', `?page=${normalizedUrlPage}${op ? `&op=${op}` : ''}`);
             }
 
             // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync
