@@ -3070,7 +3070,7 @@ const app = {
 
     renderProductsModule(canvas) {
         // Initialize selection state
-        this.state.selectedProducts = new Set();
+        this.state.activeSelection = new Set();
 
         canvas.innerHTML = this.getLoaderHTML();
 
@@ -3254,7 +3254,7 @@ const app = {
             return `
                 <div class="item" data-product-id="${p.id}" data-search-term="${(p.name || '').toLowerCase()} ${(catName || '').toLowerCase()}">
                     <div style="display: flex; gap: 12px; align-items: start;">
-                        <input type="checkbox" class="checkbox-select product-checkbox" value="${p.id}" onchange="app.toggleSelect('products', '${p.id}')">
+                        <input type="checkbox" class="checkbox-select products-checkbox" value="${p.id}" onchange="app.toggleSelect('products', '${p.id}')">
                         <div style="flex: 1;">
                             <div class="item-title">${p.name}</div>
                             <div class="item-subtitle">
@@ -3389,9 +3389,6 @@ const app = {
         const stock = parseFloat(stockInput.value) || 0;
 
         const unit = saleUnitInput ? saleUnitInput.value.trim() : '';
-        // Note: purchaseUnit and unitsPerPurchase are not in base schema yet, 
-        // but we can store them if schema allows or just ignore for now/add to note.
-        // Assuming we just map what we can.
 
         if (!name) return this.showToast('Name is required', 'error');
         if (!categoryId) return this.showToast('Category is required', 'error');
@@ -3420,14 +3417,222 @@ const app = {
             });
 
             this.showToast('Product added successfully', 'success');
-            // Reset form or reload
-            this.renderProductsModule(document.getElementById('main-canvas'));
+            this.renderProductsModule(document.getElementById('ops-canvas') || document.getElementById('main-canvas'));
 
         } catch (e) {
             console.error(e);
             this.showToast(e.message || 'Error adding product', 'error');
             if (btn) { btn.disabled = false; btn.textContent = 'Add Product'; }
         }
+    },
+
+    openUnifiedProductsStockImportModal() {
+        const modalId = 'productsImportModal';
+        let modal = document.getElementById(modalId);
+        if (modal) modal.remove();
+
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'modal-overlay';
+
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 600px; width: 95%;">
+                <div class="card-header">
+                    <h3 class="card-title">Import Products & Stock</h3>
+                    <button class="btn-ghost" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+                </div>
+                
+                <div class="modal-body" style="padding: 1.5rem;">
+                    <div class="instruction-box" style="background: rgba(78, 205, 196, 0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 4px solid #4ecdc4;">
+                        <h4 style="margin-top: 0; color: #4ecdc4;">How to use the template:</h4>
+                        <ol style="margin-bottom: 0; padding-left: 1.2rem; font-size: 0.9rem; color: var(--text-main);">
+                            <li><strong>Download</strong> the CSV template using the button below.</li>
+                            <li><strong>Fill in</strong> your product details. Mandatory fields: <em>Name, Type, Selling Price</em>.</li>
+                            <li><strong>Item Type</strong>: Enter "product" for items with stock, or "service" if no stock is tracked.</li>
+                            <li><strong>Stock</strong>: For "service" items, leave the <em>initial_stock</em> column empty.</li>
+                            <li><strong>Categories</strong>: If a category doesn't exist, it will be created automatically.</li>
+                        </ol>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-main);">1. Get the Template</label>
+                            <button class="btn-secondary" onclick="app.downloadProductsTemplate()" style="width: 100%; justify-content: center;">
+                                📥 Download CSV Template
+                            </button>
+                        </div>
+
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-main);">2. Upload Filled File</label>
+                            <div class="file-upload-wrapper" style="border: 2px dashed var(--border); padding: 2rem; text-align: center; border-radius: 8px; transition: all 0.2s;">
+                                <input type="file" id="productsCsvInput" accept=".csv" style="display: none;" onchange="this.nextElementSibling.querySelector('#fileNameDisplay').textContent = this.files[0]?.name || ''">
+                                <label for="productsCsvInput" style="cursor: pointer;">
+                                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">📄</div>
+                                    <div style="font-weight: 500; color: var(--text-main);">Click to select CSV file</div>
+                                    <div id="fileNameDisplay" style="color: var(--primary); font-size: 0.85rem; margin-top: 0.5rem; font-weight: 600;"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="importProgress" class="hidden" style="margin-top: 1rem;">
+                        <div style="height: 8px; background: #eee; border-radius: 4px; overflow: hidden;">
+                            <div id="importProgressBar" style="height: 100%; background: var(--primary); width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <div id="importStatusText" style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; text-align: center;">Processing...</div>
+                    </div>
+                </div>
+
+                <div class="modal-actions" style="display: flex; gap: 1rem; padding: 1rem; border-top: 1px solid var(--border);">
+                    <button class="btn-ghost" onclick="document.getElementById('${modalId}').remove()" style="flex: 1;">Cancel</button>
+                    <button class="btn-primary" onclick="app.handleProductsImport()" id="btnSubmitImport" style="flex: 1; justify-content: center;">🚀 Import Products</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+    },
+
+    downloadProductsTemplate() {
+        const headers = ['name', 'type', 'category', 'cost_price', 'selling_price', 'unit', 'initial_stock', 'low_stock_threshold'];
+        const sampleRows = [
+            ['Example Product', 'product', 'Electronics', '100', '150', 'pcs', '50', '10'],
+            ['Consulting Service', 'service', 'Services', '0', '500', 'hour', '', '']
+        ];
+
+        let csvContent = headers.join(',') + '\n';
+        sampleRows.forEach(row => {
+            csvContent += row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'bms_products_template.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    },
+
+    async handleProductsImport() {
+        const fileInput = document.getElementById('productsCsvInput');
+        const file = fileInput.files[0];
+        if (!file) return this.showToast('Please select a file first', 'error');
+
+        const btn = document.getElementById('btnSubmitImport');
+        const progress = document.getElementById('importProgress');
+        const progressBar = document.getElementById('importProgressBar');
+        const statusText = document.getElementById('importStatusText');
+
+        btn.disabled = true;
+        btn.textContent = 'Importing...';
+        progress.classList.remove('hidden');
+
+        try {
+            const text = await file.text();
+            const lines = text.split(/\r?\n/).filter(line => line.trim());
+            if (lines.length < 2) throw new Error('CSV file is empty or missing data');
+
+            const firstLine = lines[0];
+            const headers = firstLine.toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+            const dataRows = lines.slice(1);
+
+            // Map headers to indices
+            const getIdx = (name) => headers.indexOf(name);
+
+            const results = { success: 0, failed: 0 };
+            const categories = await this.fetchBranchCategories();
+
+            for (let i = 0; i < dataRows.length; i++) {
+                const row = this._parseCsvLine(dataRows[i]);
+                if (row.length === 0) continue;
+
+                const name = row[getIdx('name')]?.trim();
+                const type = row[getIdx('type')]?.trim().toLowerCase() === 'service' ? 'service' : 'product';
+                const catName = row[getIdx('category')]?.trim();
+                const costPrice = parseFloat(row[getIdx('cost_price')]) || 0;
+                const sellingPrice = parseFloat(row[getIdx('selling_price')]) || 0;
+                const unit = row[getIdx('unit')]?.trim() || '';
+                const stock = row[getIdx('initial_stock')] ? parseFloat(row[getIdx('initial_stock')]) : 0;
+                const lowStock = row[getIdx('low_stock_threshold')] ? parseFloat(row[getIdx('low_stock_threshold')]) : 0;
+
+                if (!name) { results.failed++; continue; }
+
+                try {
+                    // Category logic
+                    let catId = categories.find(c => c.name.toLowerCase() === catName?.toLowerCase())?.id;
+                    if (!catId && catName) {
+                        const newCat = await this.createBranchCategory({ name: catName, description: '' });
+                        categories.push(newCat);
+                        catId = newCat.id;
+                    }
+
+                    const existingProducts = this.readBranchData('products', []);
+                    const existing = existingProducts.find(p => p.name.toLowerCase() === name.toLowerCase());
+
+                    const productData = {
+                        id: existing ? existing.id : undefined,
+                        name,
+                        categoryId: catId || null,
+                        itemType: type,
+                        costPrice,
+                        sellingPrice,
+                        stock: type === 'product' ? stock : null,
+                        unit: unit,
+                        lowStock: type === 'product' ? lowStock : null
+                    };
+
+                    await this.upsertBranchProduct(productData);
+                    results.success++;
+                } catch (err) {
+                    console.error('Row import failed:', err);
+                    results.failed++;
+                }
+
+                // Update progress
+                const pc = Math.round(((i + 1) / dataRows.length) * 100);
+                progressBar.style.width = pc + '%';
+                statusText.textContent = `Processing ${i + 1} of ${dataRows.length}...`;
+            }
+
+            this.showToast(`Import complete: ${results.success} success, ${results.failed} failed`, results.failed > 0 ? 'warning' : 'success');
+            document.getElementById('productsImportModal').remove();
+            this.renderProductsModule(document.getElementById('ops-canvas') || document.getElementById('main-canvas'));
+
+        } catch (err) {
+            console.error('Import failed:', err);
+            this.showToast(err.message || 'Import failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🚀 Import Products';
+        }
+    },
+
+    _parseCsvLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current);
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        result.push(current);
+        return result;
     },
 
     // Handlers for Custom Dropdowns
@@ -3516,6 +3721,26 @@ const app = {
             // Trigger the native change logic which saves to localStorage and reloads
             select.dispatchEvent(new Event('change'));
         }
+    },
+
+    handleSalesTagChange(value) {
+        const select = document.getElementById('sale-tag');
+        if (select) select.value = value;
+    },
+
+    handleExpensesTagChange(value) {
+        const select = document.getElementById('expense-tag');
+        if (select) select.value = value;
+    },
+
+    handleIncomeTagChange(value) {
+        const select = document.getElementById('income-tag');
+        if (select) select.value = value;
+    },
+
+    handleNotesTagChange(value) {
+        const select = document.getElementById('note-tag');
+        if (select) select.value = value;
     },
 
     handleQuickAddItemTypeChange(value) {
@@ -3659,14 +3884,14 @@ const app = {
 
     // Bulk Actions & Selection
     toggleSelectAll(type) {
-        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
         const selectAll = document.getElementById(`selectAll_${type}`);
+        if (!selectAll) return;
         const checked = selectAll.checked;
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
 
         checkboxes.forEach(cb => {
             cb.checked = checked;
-            if (checked) this.state.selectedProducts.add(cb.value);
-            else this.state.selectedProducts.delete(cb.value);
+            this._updateSelectionState(type, cb.value, checked);
         });
         this.updateBulkActionState(type);
     },
@@ -3674,14 +3899,14 @@ const app = {
     toggleSelect(type, id) {
         const cb = document.querySelector(`input[value="${id}"].${type}-checkbox`);
         if (cb) {
-            if (cb.checked) this.state.selectedProducts.add(id);
-            else this.state.selectedProducts.delete(id);
+            this._updateSelectionState(type, id, cb.checked);
         }
         this.updateBulkActionState(type);
+
         // Update Select All checkbox state
         const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
         const selectAll = document.getElementById(`selectAll_${type}`);
-        if (selectAll) {
+        if (selectAll && checkboxes.length > 0) {
             const allChecked = Array.from(checkboxes).every(c => c.checked);
             const someChecked = Array.from(checkboxes).some(c => c.checked);
             selectAll.checked = allChecked;
@@ -3689,55 +3914,69 @@ const app = {
         }
     },
 
+    _updateSelectionState(type, id, isSelected) {
+        // We use a generic Set for the active selection
+        if (!this.state.activeSelection) this.state.activeSelection = new Set();
+        if (isSelected) this.state.activeSelection.add(id);
+        else this.state.activeSelection.delete(id);
+    },
+
     updateBulkActionState(type) {
-        const count = this.state.selectedProducts.size;
+        const count = this.state.activeSelection ? this.state.activeSelection.size : 0;
         const countSpan = document.getElementById(`${type}SelectedCount`);
         if (countSpan) countSpan.textContent = `${count} selected`;
 
-        const deleteBtn = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
+        // Normalize type for button IDs (e.g., 'sales' -> 'Sales')
+        const typeKey = type.charAt(0).toUpperCase() + type.slice(1);
+        const deleteBtn = document.getElementById(`btnBulkDelete${typeKey}`);
         if (deleteBtn) deleteBtn.disabled = count === 0;
 
-        const tagBtn = document.getElementById(`btnBulkTag${type.charAt(0).toUpperCase() + type.slice(1)}`);
+        const tagBtn = document.getElementById(`btnBulkTag${typeKey}`);
         if (tagBtn) tagBtn.disabled = count === 0;
     },
 
     async bulkDelete(type) {
-        const count = this.state.selectedProducts.size;
+        const count = this.state.activeSelection ? this.state.activeSelection.size : 0;
         if (count === 0) return;
 
-        if (!await this.confirmAsync(`Are you sure you want to delete ${count} items? This action is permanent.`, 'danger', 'Bulk Delete')) return;
+        if (!await this.confirmAsync(`Are you sure you want to delete ${count} selected items? This action cannot be undone.`, 'danger', 'Bulk Delete')) return;
 
-        // Verify PIN first
         this.promptPinVerification(async () => {
-            const ids = Array.from(this.state.selectedProducts);
+            const ids = Array.from(this.state.activeSelection);
             let successCount = 0;
 
-            // Show loading
-            const btn = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
+            const typeKey = type.charAt(0).toUpperCase() + type.slice(1);
+            const btn = document.getElementById(`btnBulkDelete${typeKey}`);
             const originalText = btn ? btn.innerText : 'Delete';
-            if (btn) btn.innerText = 'Deleting...';
+            if (btn) {
+                btn.innerText = 'Deleting...';
+                btn.disabled = true;
+            }
 
             for (const id of ids) {
                 try {
                     if (type === 'products') await this.deleteBranchProduct(id);
+                    else if (type === 'sales') await supabase.from('sales').delete().eq('id', id);
+                    else if (type === 'expenses') await this.deleteBranchExpense(id);
+                    else if (type === 'income') await this.deleteBranchRow('income', 'income', id);
+                    else if (type === 'notes') await this.deleteBranchRow('notes', 'notes', id);
+
                     successCount++;
-                    this.state.selectedProducts.delete(id);
+                    this.state.activeSelection.delete(id);
                 } catch (e) {
-                    console.error(`Failed to delete ${id}`, e);
+                    console.error(`Failed to delete ${type} item ${id}:`, e);
                 }
             }
 
-            this.showToast(`Deleted ${successCount} items`, 'success');
-            if (type === 'products') this.renderProductsModule(document.getElementById('main-canvas'));
+            this.showToast(`Successfully deleted ${successCount} items`, 'success');
+            this.refreshModuleList(type);
         });
     },
 
     async bulkApplyTag(type) {
-        const count = this.state.selectedProducts.size;
+        const count = this.state.activeSelection ? this.state.activeSelection.size : 0;
         if (count === 0) return;
-        // Open tag modal in bulk mode? Or simple prompt?
-        // Converting generic tag modal to handle bulk or single
-        this.openItemTagsModal(type, null, true); // null id, true for bulk
+        this.openItemTagsModal(type, null, true);
     },
 
     // Tagging System (Generic)
@@ -3822,16 +4061,29 @@ const app = {
         return data || [];
     },
 
+    refreshModuleList(module) {
+        const canvas = document.getElementById('ops-canvas') || this.dom.contentArea;
+        if (canvas) {
+            // Logic to refresh the current view
+            // If we're in operations, setActiveOp will re-render the module
+            if (this.state.activeOp) {
+                this.setActiveOp(this.state.activeOp, canvas);
+            } else {
+                this.setActiveOp(module, canvas);
+            }
+        }
+    },
+
     async openItemTagsModal(module, id, isBulk = false) {
         const modalId = 'itemTagsModal';
         let modal = document.getElementById(modalId);
 
-        let tags = [];
-        if (!isBulk && id) {
-            tags = await this.fetchItemTags(module, id);
-        }
+        let [itemTags, branchTags] = await Promise.all([
+            (!isBulk && id) ? this.fetchItemTags(module, id) : Promise.resolve([]),
+            this.fetchBranchTags()
+        ]);
 
-        const title = isBulk ? `Tag ${this.state.selectedProducts.size} Items` : 'Manage Tags';
+        const title = isBulk ? `Tag ${this.state.activeSelection ? this.state.activeSelection.size : 0} Items` : 'Manage Tags';
 
         if (!modal) {
             modal = document.createElement('div');
@@ -3839,6 +4091,25 @@ const app = {
             modal.className = 'modal hidden';
             document.body.appendChild(modal);
         }
+
+        const branchTagsListHtml = branchTags.length === 0 ? '' : `
+            <div style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.5rem;">Suggested Tags:</p>
+                <div class="flex-gap" style="flex-wrap: wrap;">
+                    ${branchTags.map(bt => {
+            const alreadyAdded = itemTags.some(it => it.tag === bt.name);
+            if (alreadyAdded && !isBulk) return '';
+            return `
+                            <span class="btn-tag" 
+                                  style="background-color:${bt.color}20; color:${bt.color}; border-color:${bt.color}; cursor:pointer;"
+                                  onclick="app.handleQuickAddModuleTag('${module}', '${id}', '${bt.name}', ${isBulk})">
+                                ${bt.name}
+                            </span>
+                        `;
+        }).join('')}
+                </div>
+            </div>
+        `;
 
         modal.innerHTML = `
             <div class="modal-content" style="max-width: 400px;">
@@ -3849,14 +4120,19 @@ const app = {
                 </div>
                 <div id="tagsList" class="flex-gap" style="flex-wrap: wrap;">
                     ${isBulk ? '<p class="text-muted">Bulk tagging adds tags to all selected items.</p>' :
-                tags.map(t => `
-                        <span class="btn-tag active" style="display:inline-flex;align-items:center;gap:4px;">
-                            ${t.tag}
-                            <span onclick="app.handleRemoveTag('${module}', '${t.id}', '${id}')" style="cursor:pointer;font-weight:bold;">&times;</span>
-                        </span>
-                      `).join('') || '<p class="text-muted">No tags yet.</p>'}
+                itemTags.map(t => {
+                    const tagInfo = branchTags.find(bt => bt.name === t.tag);
+                    const color = tagInfo ? tagInfo.color : '#666';
+                    return `
+                                <span class="btn-tag active" style="display:inline-flex;align-items:center;gap:4px; border-color:${color}; background-color:${color}20; color:${color};">
+                                    ${t.tag}
+                                    <span onclick="app.handleRemoveTag('${module}', '${t.id}', '${id}')" style="cursor:pointer;font-weight:bold;">&times;</span>
+                                </span>
+                              `;
+                }).join('') || '<p class="text-muted">No tags yet.</p>'}
                 </div>
-                <div class="flex-gap" style="justify-content: flex-end; margin-top: 1rem;">
+                ${branchTagsListHtml}
+                <div class="flex-gap" style="justify-content: flex-end; margin-top: 1.5rem;">
                     <button class="btn-secondary" onclick="document.getElementById('${modalId}').classList.add('hidden'); app.refreshModuleList('${module}')">Close</button>
                 </div>
             </div>
@@ -3876,7 +4152,7 @@ const app = {
 
             try {
                 if (isBulk) {
-                    const ids = Array.from(module === 'products' ? this.state.selectedProducts : new Set()); // For now, only products support bulk
+                    const ids = Array.from(this.state.activeSelection || []);
                     for (const pid of ids) {
                         try {
                             await this.addItemTag(module, pid, tag);
@@ -3902,6 +4178,26 @@ const app = {
 
         addBtn.onclick = addTagHandler;
         input.onkeydown = (e) => { if (e.key === 'Enter') addTagHandler(); };
+    },
+
+    async handleQuickAddModuleTag(module, id, tagName, isBulk) {
+        try {
+            if (isBulk) {
+                const ids = Array.from(this.state.activeSelection || []);
+                for (const pid of ids) {
+                    try { await this.addItemTag(module, pid, tagName); } catch (e) { }
+                }
+                this.showToast(`Tag added to selected items`, 'success');
+                document.getElementById('itemTagsModal')?.classList.add('hidden');
+                this.refreshModuleList(module);
+            } else {
+                await this.addItemTag(module, id, tagName);
+                this.openItemTagsModal(module, id, false);
+            }
+        } catch (err) {
+            console.error(err);
+            this.showToast('Failed to add tag', 'error');
+        }
     },
 
     async handleRemoveTag(module, tagId, itemId) {
@@ -4093,37 +4389,6 @@ const app = {
         }
     },
 
-    toggleSelectAll(type) {
-        const master = document.getElementById(`selectAll_${type}`);
-        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
-        checkboxes.forEach(cb => cb.checked = master.checked);
-        this.updateBulkActionState(type);
-    },
-
-    toggleSelect(type, id) {
-        this.updateBulkActionState(type);
-    },
-
-    updateBulkActionState(type) {
-        const checkboxes = document.querySelectorAll(`.${type}-checkbox:checked`);
-        const count = checkboxes.length;
-        const countSpan = document.getElementById(`${type}SelectedCount`);
-        if (countSpan) countSpan.textContent = `${count} selected`;
-
-        const btnDelete = document.getElementById(`btnBulkDelete${type.charAt(0).toUpperCase() + type.slice(1)}`);
-        const btnTag = document.getElementById(`btnBulkTag${type.charAt(0).toUpperCase() + type.slice(1)}`);
-
-        if (btnDelete) btnDelete.disabled = count === 0;
-        if (btnTag) btnTag.disabled = count === 0;
-    },
-
-    bulkDelete(type) {
-        this.showToast('Bulk delete coming soon', 'info');
-    },
-
-    bulkApplyTag(type) {
-        this.showToast('Bulk tag coming soon', 'info');
-    },
 
 
 
@@ -4626,6 +4891,8 @@ const app = {
     },
 
     renderSalesModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         const state = this.getPaginationState('sales');
@@ -4641,8 +4908,9 @@ const app = {
             this.fetchBranchProducts(),
             this.fetchBranchCustomers(),
             this.fetchBranchSales(currentPage, pageSize, todayStart, null),
-            this.fetchAllItemTags('sales')
-        ]).then(([categories, products, customers, salesData, saleTags]) => {
+            this.fetchAllItemTags('sales'),
+            this.fetchBranchTags()
+        ]).then(([categories, products, customers, salesData, saleTags, branchTags]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
 
             // Handle server-side filtering results
@@ -4668,8 +4936,10 @@ const app = {
                 const itemTags = saleTags.filter(t => t.sale_id === sale.id);
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid rgba(255,255,255,0.3);">${t.tag}</span>`).join('');
                 return `
-                <div class="sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}">
-                    <div class="sale-item-header">
+                <div class="sale-item" style="border-left: 4px solid ${color}; display: flex; gap: 12px; align-items: start;" data-sale-id="${sale.id}" data-sale="${saleJson}">
+                    <input type="checkbox" class="checkbox-select sales-checkbox" value="${sale.id}" onchange="app.toggleSelect('sales', '${sale.id}')" style="margin-top: 4px;">
+                    <div style="flex: 1;">
+                        <div class="sale-item-header">
                         <span class="sale-item-title">
                             ${sale.productName || 'Unknown'}
                             ${tagUnix ? `<div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">${tagUnix}</div>` : ''}
@@ -4765,14 +5035,31 @@ const app = {
                                 <label>Note</label>
                                 <input type="text" id="sale-note" placeholder="Optional note">
                             </div>
+                            <div class="input-group">
+                                <label>Tag</label>
+                                <select id="sale-tag" style="display:none;">
+                                    <option value="">-- No Tag --</option>
+                                </select>
+                                ${this.renderCustomDropdown('saleTagDropdown', [
+                { value: '', label: '-- No Tag --' },
+                ...branchTags.map(t => ({ value: t.name, label: t.name }))
+            ], '', '-- No Tag --', 'app.handleSalesTagChange')}
+                            </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Sale</button>
                         </form>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom: 0;">
                         <h4 class="card-title">Recent Sales</h4>
+                    </div>
+                    <div class="bulk-actions" style="margin: 8px 1rem;">
+                        <input type="checkbox" id="selectAll_sales" onchange="app.toggleSelectAll('sales')" class="checkbox-select">
+                        <label for="selectAll_sales">Select All</label>
+                        <span id="salesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
+                        <button id="btnBulkDeleteSales" class="btn-small btn-danger" onclick="app.bulkDelete('sales')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                        <button id="btnBulkTagSales" class="btn-small btn-tag" onclick="app.bulkApplyTag('sales')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                     </div>
                     ${salesList.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
@@ -4937,7 +5224,7 @@ const app = {
                                 await this.upsertBranchProduct({ ...product, stock: nextStock });
                             }
 
-                            await this.createBranchSale({
+                            const createdSale = await this.createBranchSale({
                                 productId,
                                 productName: product.name,
                                 categoryId: product.categoryId,
@@ -4950,6 +5237,12 @@ const app = {
                                 customerName: customer ? customer.name : null,
                                 note
                             });
+
+                            const selectedTag = document.getElementById('sale-tag').value;
+                            if (selectedTag) {
+                                await this.addItemTag('sales', createdSale.id, selectedTag);
+                            }
+
                             this.showToast('Sale recorded', 'success');
                             this.renderSalesModule(canvas);
 
@@ -5274,12 +5567,15 @@ const app = {
     },
 
     renderExpensesModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([
             this.fetchBranchExpenses(),
-            this.fetchAllItemTags('expenses')
-        ]).then(([expenses, expenseTags]) => {
+            this.fetchAllItemTags('expenses'),
+            this.fetchBranchTags()
+        ]).then(([expenses, expenseTags, branchTags]) => {
             const { items: pagedExpenses, page: expensesPage, totalPages: expensesPages } = this.paginateList(expenses, 'expenses', 10);
             const categories = this.getExpenseCategories();
             const quickAddVal = '__quick_add_expense_cat__';
@@ -5290,6 +5586,7 @@ const app = {
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
                 <tr class="expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
+                    <td><input type="checkbox" class="checkbox-select expenses-checkbox" value="${expense.id}" onchange="app.toggleSelect('expenses', '${expense.id}')"></td>
                     <td data-label="Date">${new Date(expense.createdAt).toLocaleString()}</td>
                     <td data-label="Title">
                         ${expense.title}
@@ -5353,14 +5650,31 @@ const app = {
                                 <label>Note</label>
                                 <input type="text" id="expense-note" placeholder="Optional note">
                             </div>
+                            <div class="input-group">
+                                <label>Tag</label>
+                                <select id="expense-tag" style="display:none;">
+                                    <option value="">-- No Tag --</option>
+                                </select>
+                                ${this.renderCustomDropdown('expenseTagDropdown', [
+                { value: '', label: '-- No Tag --' },
+                ...branchTags.map(t => ({ value: t.name, label: t.name }))
+            ], '', '-- No Tag --', 'app.handleExpensesTagChange')}
+                            </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Expense</button>
                         </form>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Expenses</h4>
+                    </div>
+                    <div class="bulk-actions" style="margin: 8px 1rem;">
+                        <input type="checkbox" id="selectAll_expenses" onchange="app.toggleSelectAll('expenses')" class="checkbox-select">
+                        <label for="selectAll_expenses">Select All</label>
+                        <span id="expensesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
+                        <button id="btnBulkDeleteExpenses" class="btn-small btn-danger" onclick="app.bulkDelete('expenses')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                        <button id="btnBulkTagExpenses" class="btn-small btn-tag" onclick="app.bulkApplyTag('expenses')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                     </div>
                     ${expenses.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>
@@ -5369,6 +5683,7 @@ const app = {
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 40px;"></th>
                                         <th>Date</th>
                                         <th>Title</th>
                                         <th>Category</th>
@@ -5489,7 +5804,11 @@ const app = {
                         }
 
                         try {
-                            await this.createBranchExpense({ title, category, amount, note });
+                            const createdExpense = await this.createBranchExpense({ title, category, amount, note });
+                            const selectedTag = document.getElementById('expense-tag').value;
+                            if (selectedTag) {
+                                await this.addItemTag('expenses', createdExpense.id, selectedTag);
+                            }
                             this.showToast('Expense added', 'success');
                             this.renderExpensesModule(canvas);
                         } catch (error) {
@@ -5657,12 +5976,15 @@ const app = {
     },
 
     renderIncomeModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([
             this.fetchBranchIncome(),
-            this.fetchAllItemTags('income')
-        ]).then(([incomeEntries, incomeTags]) => {
+            this.fetchAllItemTags('income'),
+            this.fetchBranchTags()
+        ]).then(([incomeEntries, incomeTags, branchTags]) => {
             const { items: pagedIncome, page: incomePage, totalPages: incomePages } = this.paginateList(incomeEntries, 'income', 10);
             const sources = this.getIncomeSources();
             const quickAddVal = '__quick_add_income_src__';
@@ -5673,6 +5995,7 @@ const app = {
                 const entryJson = encodeURIComponent(JSON.stringify(entry));
                 return `
                 <tr class="income-item" data-income-id="${entry.id}" data-income="${entryJson}">
+                    <td><input type="checkbox" class="checkbox-select income-checkbox" value="${entry.id}" onchange="app.toggleSelect('income', '${entry.id}')"></td>
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
                     <td data-label="Title">
                         ${entry.title}
@@ -5733,14 +6056,31 @@ const app = {
                                 <label>Note</label>
                                 <input type="text" id="income-note" placeholder="Optional note">
                             </div>
+                            <div class="input-group">
+                                <label>Tag</label>
+                                <select id="income-tag" style="display:none;">
+                                    <option value="">-- No Tag --</option>
+                                </select>
+                                ${this.renderCustomDropdown('incomeTagDropdown', [
+                { value: '', label: '-- No Tag --' },
+                ...branchTags.map(t => ({ value: t.name, label: t.name }))
+            ], '', '-- No Tag --', 'app.handleIncomeTagChange')}
+                            </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Income</button>
                         </form>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Income</h4>
+                    </div>
+                    <div class="bulk-actions" style="margin: 8px 1rem;">
+                        <input type="checkbox" id="selectAll_income" onchange="app.toggleSelectAll('income')" class="checkbox-select">
+                        <label for="selectAll_income">Select All</label>
+                        <span id="incomeSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
+                        <button id="btnBulkDeleteIncome" class="btn-small btn-danger" onclick="app.bulkDelete('income')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                        <button id="btnBulkTagIncome" class="btn-small btn-tag" onclick="app.bulkApplyTag('income')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                     </div>
                     ${incomeEntries.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No income entries recorded yet.</div>
@@ -5749,6 +6089,7 @@ const app = {
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 40px;"></th>
                                         <th>Date</th>
                                         <th>Title</th>
                                         <th>Source</th>
@@ -5765,8 +6106,9 @@ const app = {
                         ${this.renderPaginationControls('income', incomePage, incomePages)}
                     `}
                 </div>
+                </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -5779,9 +6121,9 @@ const app = {
                         const srcs = this.getIncomeSources();
                         const opts = srcs.map(s => `<option value="${s}">${s}</option>`).join('');
                         srcSelect.innerHTML = `
-                            <option value="" disabled ${selected ? '' : 'selected'}>Select source</option>
-                            ${opts}
-                            <option value="${quickAddVal}">+ Add & Save New Source</option>
+                        <option value="" disabled ${selected ? '' : 'selected'}>Select source</option>
+                        ${opts}
+                        <option value="${quickAddVal}">+ Add & Save New Source</option>
                         `;
 
                         // Sync Custom Dropdown
@@ -5869,7 +6211,11 @@ const app = {
                         }
 
                         try {
-                            await this.createBranchIncome({ title, source, amount, note });
+                            const createdIncome = await this.createBranchIncome({ title, source, amount, note });
+                            const selectedTag = document.getElementById('income-tag').value;
+                            if (selectedTag) {
+                                await this.addItemTag('income', createdIncome.id, selectedTag);
+                            }
                             this.showToast('Income added', 'success');
                             this.renderIncomeModule(canvas);
                         } catch (error) {
@@ -5900,12 +6246,15 @@ const app = {
     },
 
     renderNotesModule(canvas) {
+        // Initialize selection state
+        this.state.activeSelection = new Set();
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([
             this.fetchBranchNotes(),
-            this.fetchAllItemTags('notes')
-        ]).then(([notes, noteTags]) => {
+            this.fetchAllItemTags('notes'),
+            this.fetchBranchTags()
+        ]).then(([notes, noteTags, branchTags]) => {
             const { items: pagedNotes, page: notesPage, totalPages: notesPages } = this.paginateList(notes, 'notes', 10);
 
             // New Card-based Layout
@@ -5916,25 +6265,28 @@ const app = {
                 const tagUnix = itemTags.map(t => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${t.tag}</span>`).join('');
 
                 return `
-                <div class="item" data-note-id="${note.id}" data-note="${noteJson}">
-                    <div class="note-preview" style="cursor: pointer;" title="Open note">
-                        <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
-                        <div class="item-subtitle" style="margin-bottom: 0;">${dateStr}</div>
-                    </div>
-                    <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
-                        <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
-                            <span style="margin-right: 4px;">✏️</span> Edit
-                        </button>
-                        <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('notes', '${note.id}')">
-                            <span style="margin-right: 4px;">📌</span> Tag
-                        </button>
-                        <div style="flex:1;"></div>
-                        <button class="btn-ghost note-action-btn" data-action="delete" title="Delete Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
-                            <span style="margin-right: 4px;">🗑️</span> Delete
-                        </button>
-                    </div>
-                    <div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">
-                        ${tagUnix}
+                <div class="item" data-note-id="${note.id}" data-note="${noteJson}" style="display: flex; gap: 12px; align-items: start;">
+                    <input type="checkbox" class="checkbox-select notes-checkbox" value="${note.id}" onchange="app.toggleSelect('notes', '${note.id}')" style="margin-top: 8px;">
+                    <div style="flex: 1;">
+                        <div class="note-preview" style="cursor: pointer;" title="Open note">
+                            <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
+                            <div class="item-subtitle" style="margin-bottom: 0;">${dateStr}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
+                            <button class="btn-ghost note-action-btn" data-action="edit" title="Edit Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);">
+                                <span style="margin-right: 4px;">✏️</span> Edit
+                            </button>
+                            <button class="btn-ghost note-action-btn" data-action="tag" title="Add Tag" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-main);" onclick="app.openItemTagsModal('notes', '${note.id}')">
+                                <span style="margin-right: 4px;">📌</span> Tag
+                            </button>
+                            <div style="flex:1;"></div>
+                            <button class="btn-ghost note-action-btn" data-action="delete" title="Delete Note" style="padding: 4px 8px; font-size: 0.85rem; color: var(--danger);">
+                                <span style="margin-right: 4px;">🗑️</span> Delete
+                            </button>
+                        </div>
+                        <div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">
+                            ${tagUnix}
+                        </div>
                     </div>
                 </div>
                 `;
@@ -5963,7 +6315,17 @@ const app = {
                             </div>
                             <div class="input-group">
                                 <label>Details</label>
-                                <textarea id="note-details" class="input-field" rows="3" placeholder="Optional details"></textarea>
+                                <textarea id="note-details" class="input-field" rows="8" placeholder="Optional details"></textarea>
+                            </div>
+                            <div class="input-group">
+                                <label>Tag</label>
+                                <select id="note-tag" style="display:none;">
+                                    <option value="">-- No Tag --</option>
+                                </select>
+                                ${this.renderCustomDropdown('noteTagDropdown', [
+                { value: '', label: '-- No Tag --' },
+                ...branchTags.map(t => ({ value: t.name, label: t.name }))
+            ], '', '-- No Tag --', 'app.handleNotesTagChange')}
                             </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Note</button>
                         </form>
@@ -5971,8 +6333,15 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Notes</h4>
+                    </div>
+                    <div class="bulk-actions" style="margin: 8px 1rem;">
+                        <input type="checkbox" id="selectAll_notes" onchange="app.toggleSelectAll('notes')" class="checkbox-select">
+                        <label for="selectAll_notes">Select All</label>
+                        <span id="notesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
+                        <button id="btnBulkDeleteNotes" class="btn-small btn-danger" onclick="app.bulkDelete('notes')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                        <button id="btnBulkTagNotes" class="btn-small btn-tag" onclick="app.bulkApplyTag('notes')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                     </div>
                     ${notes.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
@@ -6010,7 +6379,11 @@ const app = {
                         }
 
                         try {
-                            await this.createBranchNote({ title, details });
+                            const createdNote = await this.createBranchNote({ title, details });
+                            const selectedTag = document.getElementById('note-tag').value;
+                            if (selectedTag) {
+                                await this.addItemTag('notes', createdNote.id, selectedTag);
+                            }
                             this.showToast('Note added', 'success');
                             this.renderNotesModule(canvas);
                         } catch (error) {
@@ -6091,50 +6464,50 @@ const app = {
         // Initial State (View Mode)
         const modalHTML = `
             <div id="note-preview-modal" class="modal-overlay">
-                <div class="modal-content" style="max-width: 900px; width: 90%;">
-                    <!-- Header -->
-                    <div class="card-header" style="display:flex; justify-content:space-between; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem;">
-                        <div style="flex: 1; padding-right: 1rem;">
-                            <!-- View Mode Title -->
-                            <h3 id="np-view-title" style="margin:0; font-size: 1.25rem;">${note.title}</h3>
-                            <div id="np-view-date" class="text-muted" style="font-size: 0.85rem; margin-top: 4px;">${dateStr}</div>
-                            
-                            <!-- Edit Mode Title Input (Hidden) -->
-                            <div id="np-edit-title-group" class="hidden" style="margin-bottom: 0.5rem;">
-                                <label style="font-size: 0.75rem; color: var(--text-muted);">Title</label>
-                                <input type="text" id="np-edit-title" class="input-field" value="${note.title}" style="font-size: 1.1rem; font-weight: 600;">
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <button id="np-toggle-edit" class="btn-ghost" style="padding: 6px 12px; display: flex; align-items: center; gap: 6px;">
-                                <span>✏️</span> Edit
-                            </button>
-                            <button class="btn-ghost close-modal-btn" style="padding: 6px;">&times;</button>
-                        </div>
-                    </div>
+        <div class="modal-content" style="max-width: 900px; width: 90%;">
+            <!-- Header -->
+            <div class="card-header" style="display:flex; justify-content:space-between; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem;">
+                <div style="flex: 1; padding-right: 1rem;">
+                    <!-- View Mode Title -->
+                    <h3 id="np-view-title" style="margin:0; font-size: 1.25rem;">${note.title}</h3>
+                    <div id="np-view-date" class="text-muted" style="font-size: 0.85rem; margin-top: 4px;">${dateStr}</div>
 
-                    <!-- Body -->
-                    <div style="min-height: 200px;">
-                        <!-- View Mode Body -->
-                        <div id="np-view-body" style="white-space: pre-wrap; line-height: 1.6; color: var(--text-main);">
-                            ${note.details || '<em class="text-muted">No additional details</em>'}
-                        </div>
-
-                        <!-- Edit Mode Body (Hidden) -->
-                        <div id="np-edit-body-group" class="hidden" style="height: 100%;">
-                             <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Content</label>
-                            <textarea id="np-edit-details" class="input-field" style="width: 100%; height: 300px; resize: vertical; font-family: inherit; line-height: 1.5;">${note.details || ''}</textarea>
-                        </div>
-                    </div>
-
-                    <!-- Footer (View Mode only, Edit actions are in header/toggle) -->
-                    <div id="np-footer" class="modal-actions" style="border-top: 1px solid var(--border); margin-top: 1.5rem; padding-top: 1rem; text-align: right;">
-                        <button class="btn-primary close-modal-btn">Close</button>
+                    <!-- Edit Mode Title Input (Hidden) -->
+                    <div id="np-edit-title-group" class="hidden" style="margin-bottom: 0.5rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-muted);">Title</label>
+                        <input type="text" id="np-edit-title" class="input-field" value="${note.title}" style="font-size: 1.1rem; font-weight: 600;">
                     </div>
                 </div>
+
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button id="np-toggle-edit" class="btn-ghost" style="padding: 6px 12px; display: flex; align-items: center; gap: 6px;">
+                        <span>✏️</span> Edit
+                    </button>
+                    <button class="btn-ghost close-modal-btn" style="padding: 6px;">&times;</button>
+                </div>
             </div>
-         `;
+
+            <!-- Body -->
+            <div style="min-height: 200px;">
+                <!-- View Mode Body -->
+                <div id="np-view-body" style="white-space: pre-wrap; line-height: 1.6; color: var(--text-main);">
+                    ${note.details || '<em class="text-muted">No additional details</em>'}
+                </div>
+
+                <!-- Edit Mode Body (Hidden) -->
+                <div id="np-edit-body-group" class="hidden" style="height: 100%;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Content</label>
+                    <textarea id="np-edit-details" class="input-field" style="width: 100%; height: 300px; resize: vertical; font-family: inherit; line-height: 1.5;">${note.details || ''}</textarea>
+                </div>
+            </div>
+
+            <!-- Footer (View Mode only, Edit actions are in header/toggle) -->
+            <div id="np-footer" class="modal-actions" style="border-top: 1px solid var(--border); margin-top: 1.5rem; padding-top: 1rem; text-align: right;">
+                <button class="btn-primary close-modal-btn">Close</button>
+            </div>
+        </div>
+            </div>
+            `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('note-preview-modal');
@@ -6253,30 +6626,30 @@ const app = {
 
         const modalHTML = `
             <div id="edit-note-modal" class="modal-overlay">
-                <div class="modal-content" style="max-width: 700px; width: 90%;">
-                    <div class="card-header">
-                        <h3 class="card-title">Edit Note</h3>
-                        <button class="btn-ghost close-modal-btn">&times;</button>
-                    </div>
-                    <div id="edit-note-message" class="message-box hidden"></div>
-                    <form id="edit-note-form" style="margin-top: 1rem;">
-                        <input type="hidden" id="edit-note-id" value="${note.id}">
-                        <div class="input-group">
-                            <label>Title</label>
-                            <input type="text" id="edit-note-title" value="${note.title}" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Details</label>
-                            <textarea id="edit-note-details" class="input-field" rows="5">${note.details || ''}</textarea>
-                        </div>
-                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
-                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
-                        </div>
-                    </form>
-                </div>
+        <div class="modal-content" style="max-width: 700px; width: 90%;">
+            <div class="card-header">
+                <h3 class="card-title">Edit Note</h3>
+                <button class="btn-ghost close-modal-btn">&times;</button>
             </div>
-        `;
+            <div id="edit-note-message" class="message-box hidden"></div>
+            <form id="edit-note-form" style="margin-top: 1rem;">
+                <input type="hidden" id="edit-note-id" value="${note.id}">
+                    <div class="input-group">
+                        <label>Title</label>
+                        <input type="text" id="edit-note-title" value="${note.title}" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Details</label>
+                        <textarea id="edit-note-details" class="input-field" style="min-height: 300px; resize: vertical; line-height: 1.5; font-family: inherit;">${note.details || ''}</textarea>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                        <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                    </div>
+            </form>
+        </div>
+            </div>
+            `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('edit-note-modal');
@@ -6322,16 +6695,16 @@ const app = {
         this.fetchBranchCustomers().then((customers) => {
             const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 10);
             const rows = pagedCustomers.map(customer => `
-                <tr>
+    < tr >
                     <td data-label="Name">${customer.name}</td>
                     <td data-label="Phone">${customer.phone || '-'}</td>
                     <td data-label="Email">${customer.email || '-'}</td>
                     <td data-label="Address">${customer.address || '-'}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Customers</h3>
@@ -6394,7 +6767,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -6442,20 +6815,20 @@ const app = {
         canvas.innerHTML = this.getLoaderHTML();
 
         Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
-            const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
+            const customerOptions = customers.map(cust => `< option value = "${cust.id}" > ${cust.name}</option > `).join('');
             const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 10);
             const rows = pagedInvoices.map(inv => `
-                <tr>
+    < tr >
                     <td data-label="Date">${new Date(inv.createdAt).toLocaleString()}</td>
                     <td data-label="Invoice">${inv.invoiceNumber}</td>
                     <td data-label="Customer">${inv.customerName || '-'}</td>
                     <td data-label="Amount">${this.formatCurrency(inv.amount || 0)}</td>
                     <td data-label="Status">${inv.status}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Invoices & Receivables</h3>
@@ -6532,7 +6905,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -6595,16 +6968,16 @@ const app = {
         this.fetchBranchReports().then((reports) => {
             const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 10);
             const rows = pagedReports.map(report => `
-                <tr>
+    < tr >
                     <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
                     <td data-label="Type">${report.type}</td>
                     <td data-label="Period">${report.period}</td>
                     <td data-label="Note">${report.note || '-'}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Reports</h3>
@@ -6675,7 +7048,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -6720,17 +7093,17 @@ const app = {
         this.fetchBranchLoans().then((loans) => {
             const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 10);
             const rows = pagedLoans.map(loan => `
-                <tr>
+    < tr >
                     <td data-label="Date">${new Date(loan.createdAt).toLocaleString()}</td>
                     <td data-label="Borrower">${loan.borrower}</td>
                     <td data-label="Amount">${this.formatCurrency(loan.amount || 0)}</td>
                     <td data-label="Status">${loan.status}</td>
                     <td data-label="Due">${loan.dueDate || '-'}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Loans</h3>
@@ -6803,7 +7176,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -6859,16 +7232,16 @@ const app = {
         this.fetchBranchAssets().then((assets) => {
             const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 10);
             const rows = pagedAssets.map(asset => `
-                <tr>
+    < tr >
                     <td data-label="Name">${asset.name}</td>
                     <td data-label="Value">${this.formatCurrency(asset.value || 0)}</td>
                     <td data-label="Purchased">${asset.purchaseDate || '-'}</td>
                     <td data-label="Condition">${asset.condition || '-'}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Assets</h3>
@@ -6931,7 +7304,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -6985,17 +7358,17 @@ const app = {
         this.fetchBranchMaintenance().then((maintenance) => {
             const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 10);
             const rows = pagedMaintenance.map(entry => `
-                <tr>
+    < tr >
                     <td data-label="Date">${new Date(entry.createdAt).toLocaleString()}</td>
                     <td data-label="Title">${entry.title}</td>
                     <td data-label="Asset">${entry.asset || '-'}</td>
                     <td data-label="Cost">${this.formatCurrency(entry.cost || 0)}</td>
                     <td data-label="Status">${entry.status}</td>
-                </tr>
-            `).join('');
+                </tr >
+    `).join('');
 
             canvas.innerHTML = `
-            <div class="page-enter">
+    < div class="page-enter" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <div>
                         <h3>Maintenance</h3>
@@ -7064,7 +7437,7 @@ const app = {
                     `}
                 </div>
             </div>
-        `;
+            `;
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
@@ -7179,70 +7552,70 @@ const app = {
         // Validating if we have profile data
         const displayName = profile?.full_name || 'User';
         const displayRole = role === 'admin' ? 'Enterprise Admin' : 'Branch Manager';
-        const displayEmail = user?.email || (role === 'branch' ? `${profile?.id || 'branch'}@bms` : 'N/A');
+        const displayEmail = user?.email || (role === 'branch' ? `${profile?.id || 'branch'} @bms` : 'N/A');
 
         let content = `
-            <div class="card page-enter" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
-                <div class="card-header" style="text-align: center; display: block; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
-                    <div style="font-size: 4rem; margin-bottom: 1rem; animation: float 6s ease-in-out infinite;">👤</div>
-                    <h2 class="gradient-text" style="font-size: 2rem; margin-bottom: 0.5rem;">${displayName}</h2>
-                    <span class="badge ${role === 'admin' ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.9rem; padding: 0.4rem 1rem;">
-                        ${displayRole}
-                    </span>
-                    ${role === 'branch' ? `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.9rem;">Branch ID: ${profile.branch_login_id || 'N/A'}</div>` : ''}
-                </div>
+<div class="card page-enter" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
+    <div class="card-header" style="text-align: center; display: block; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
+        <div style="font-size: 4rem; margin-bottom: 1rem; animation: float 6s ease-in-out infinite;">👤</div>
+        <h2 class="gradient-text" style="font-size: 2rem; margin-bottom: 0.5rem;">${displayName}</h2>
+        <span class="badge ${role === 'admin' ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.9rem; padding: 0.4rem 1rem;">
+            ${displayRole}
+        </span>
+        ${role === 'branch' ? `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.9rem;">Branch ID: ${profile.branch_login_id || 'N/A'}</div>` : ''}
+    </div>
 
-                <div style="display: grid; gap: 2rem;">
+    <div style="display: grid; gap: 2rem;">
         `;
 
         // 1. Appearance (Theme)
         content += `
-            <div class="settings-section">
-                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Appearance</h4>
-                <div class="settings-row">
-                    <div>
-                        <div style="font-weight: 500;">Theme</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
-                    </div>
-                    <div class="theme-buttons">
-                        <label class="theme-switch" title="Toggle theme">
-                            <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
+        <div class="settings-section">
+            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Appearance</h4>
+            <div class="settings-row">
+                <div>
+                    <div style="font-weight: 500;">Theme</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
+                </div>
+                <div class="theme-buttons">
+                    <label class="theme-switch" title="Toggle theme">
+                        <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
                             <span class="theme-slider"></span>
-                        </label>
-                    </div>
+                    </label>
                 </div>
             </div>
+        </div>
         `;
 
         // 2. Regional (Currency)
         content += `
-            <div class="settings-section">
-                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Regional Settings</h4>
-                <div class="settings-row">
-                   <div>
-                        <div style="font-weight: 500;">Currency</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Default currency for transactions</div>
-                   </div>
-                   <select id="settings-currency" class="input-field" style="display:none;">
-                        <option value="TZS" ${this.state.currentCurrency === 'TZS' ? 'selected' : ''}>TZS (Tanzanian Shilling)</option>
-                        <option value="USD" ${this.state.currentCurrency === 'USD' ? 'selected' : ''}>USD (US Dollar)</option>
-                        <option value="EUR" ${this.state.currentCurrency === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
-                        <option value="GBP" ${this.state.currentCurrency === 'GBP' ? 'selected' : ''}>GBP (British Pound)</option>
-                        <option value="KES" ${this.state.currentCurrency === 'KES' ? 'selected' : ''}>KES (Kenyan Shilling)</option>
-                        <option value="UGX" ${this.state.currentCurrency === 'UGX' ? 'selected' : ''}>UGX (Ugandan Shilling)</option>
-                        <option value="RWF" ${this.state.currentCurrency === 'RWF' ? 'selected' : ''}>RWF (Rwandan Franc)</option>
-                        <option value="ZAR" ${this.state.currentCurrency === 'ZAR' ? 'selected' : ''}>ZAR (South African Rand)</option>
-                        <option value="NGN" ${this.state.currentCurrency === 'NGN' ? 'selected' : ''}>NGN (Nigerian Naira)</option>
-                        <option value="GHS" ${this.state.currentCurrency === 'GHS' ? 'selected' : ''}>GHS (Ghanaian Cedi)</option>
-                        <option value="AED" ${this.state.currentCurrency === 'AED' ? 'selected' : ''}>AED (UAE Dirham)</option>
-                        <option value="INR" ${this.state.currentCurrency === 'INR' ? 'selected' : ''}>INR (Indian Rupee)</option>
-                        <option value="CNY" ${this.state.currentCurrency === 'CNY' ? 'selected' : ''}>CNY (Chinese Yuan)</option>
-                        <option value="JPY" ${this.state.currentCurrency === 'JPY' ? 'selected' : ''}>JPY (Japanese Yen)</option>
-                        <option value="CAD" ${this.state.currentCurrency === 'CAD' ? 'selected' : ''}>CAD (Canadian Dollar)</option>
-                        <option value="AUD" ${this.state.currentCurrency === 'AUD' ? 'selected' : ''}>AUD (Australian Dollar)</option>
-                   </select>
-                   <div style="min-width: 200px;">
-                   ${this.renderCustomDropdown('settingsCurrencyDropdown', [
+        <div class="settings-section">
+            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Regional Settings</h4>
+            <div class="settings-row">
+                <div>
+                    <div style="font-weight: 500;">Currency</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Default currency for transactions</div>
+                </div>
+                <select id="settings-currency" class="input-field" style="display:none;">
+                    <option value="TZS" ${this.state.currentCurrency === 'TZS' ? 'selected' : ''}>TZS (Tanzanian Shilling)</option>
+                    <option value="USD" ${this.state.currentCurrency === 'USD' ? 'selected' : ''}>USD (US Dollar)</option>
+                    <option value="EUR" ${this.state.currentCurrency === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
+                    <option value="GBP" ${this.state.currentCurrency === 'GBP' ? 'selected' : ''}>GBP (British Pound)</option>
+                    <option value="KES" ${this.state.currentCurrency === 'KES' ? 'selected' : ''}>KES (Kenyan Shilling)</option>
+                    <option value="UGX" ${this.state.currentCurrency === 'UGX' ? 'selected' : ''}>UGX (Ugandan Shilling)</option>
+                    <option value="RWF" ${this.state.currentCurrency === 'RWF' ? 'selected' : ''}>RWF (Rwandan Franc)</option>
+                    <option value="ZAR" ${this.state.currentCurrency === 'ZAR' ? 'selected' : ''}>ZAR (South African Rand)</option>
+                    <option value="NGN" ${this.state.currentCurrency === 'NGN' ? 'selected' : ''}>NGN (Nigerian Naira)</option>
+                    <option value="GHS" ${this.state.currentCurrency === 'GHS' ? 'selected' : ''}>GHS (Ghanaian Cedi)</option>
+                    <option value="AED" ${this.state.currentCurrency === 'AED' ? 'selected' : ''}>AED (UAE Dirham)</option>
+                    <option value="INR" ${this.state.currentCurrency === 'INR' ? 'selected' : ''}>INR (Indian Rupee)</option>
+                    <option value="CNY" ${this.state.currentCurrency === 'CNY' ? 'selected' : ''}>CNY (Chinese Yuan)</option>
+                    <option value="JPY" ${this.state.currentCurrency === 'JPY' ? 'selected' : ''}>JPY (Japanese Yen)</option>
+                    <option value="CAD" ${this.state.currentCurrency === 'CAD' ? 'selected' : ''}>CAD (Canadian Dollar)</option>
+                    <option value="AUD" ${this.state.currentCurrency === 'AUD' ? 'selected' : ''}>AUD (Australian Dollar)</option>
+                </select>
+                <div style="min-width: 200px;">
+                    ${this.renderCustomDropdown('settingsCurrencyDropdown', [
             { value: 'TZS', label: 'TZS (Tanzanian Shilling)' },
             { value: 'USD', label: 'USD (US Dollar)' },
             { value: 'EUR', label: 'EUR (Euro)' },
@@ -7260,36 +7633,36 @@ const app = {
             { value: 'CAD', label: 'CAD (Canadian Dollar)' },
             { value: 'AUD', label: 'AUD (Australian Dollar)' }
         ], this.state.currentCurrency, 'Select currency', 'app.handleSettingsCurrencyChange')}
-                   </div>
                 </div>
             </div>
+        </div>
         `;
 
         // 2.5. Business Details (for receipts) — read from profile state (Supabase-backed)
         content += `
-            <div class="settings-section">
-                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Business Details</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Used on printed receipts</p>
-                <div id="biz-details-message" class="message-box hidden"></div>
-                <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
-                    <div class="input-group">
-                        <label>Address</label>
-                        <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 123 Business St, City" disabled>
-                    </div>
-                    <div class="input-group">
-                        <label>Phone</label>
-                        <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +123 456 789" disabled>
-                    </div>
-                    <div class="input-group">
-                        <label>Email</label>
-                        <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="youremail@domain.co" disabled>
-                    </div>
-                    <div style="display:flex;gap:1rem;">
-                        <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
-                        <button type="submit" id="biz-save-btn" class="btn-primary" style="width: auto; display: none;">Save Details</button>
-                    </div>
-                </form>
-            </div>
+        <div class="settings-section">
+            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Business Details</h4>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Used on printed receipts</p>
+            <div id="biz-details-message" class="message-box hidden"></div>
+            <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
+                <div class="input-group">
+                    <label>Address</label>
+                    <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 123 Business St, City" disabled>
+                </div>
+                <div class="input-group">
+                    <label>Phone</label>
+                    <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +123 456 789" disabled>
+                </div>
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="youremail@domain.co" disabled>
+                </div>
+                <div style="display:flex;gap:1rem;">
+                    <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
+                    <button type="submit" id="biz-save-btn" class="btn-primary" style="width: auto; display: none;">Save Details</button>
+                </div>
+            </form>
+        </div>
         `;
 
         // 3. Profile Info (Admin Only Edit)
@@ -7315,9 +7688,9 @@ const app = {
 
         // 4. Security
         content += `
-            <div class="settings-section">
-                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
-        `;
+        <div class="settings-section">
+            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
+            `;
 
         // 4.1 Change Password (Admin Only)
         if (role === 'admin') {
@@ -7363,46 +7736,46 @@ const app = {
 
         // 4.2 Security PIN (Admin & Branch)
         content += `
-                <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
-                     <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="font-weight: 500;">Security PIN</span>
-                            <span class="badge ${this.state.hasSecurityPin ? 'badge-success' : 'badge-warning'}" style="font-size: 0.7rem;">
-                                ${this.state.hasSecurityPin ? 'Active' : 'Not Set'}
-                            </span>
-                        </div>
-                        <span>▼</span>
-                     </div>
-                     <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
-                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                            Used for sensitive actions like deleting ${role === 'admin' ? 'branches' : 'sales'}.
-                        </p>
-                        <div id="pin-message" class="message-box hidden"></div>
-                        <form id="pin-form" class="auth-form" style="max-width: 100%;">
-                            ${this.state.hasSecurityPin ? `
+            <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
+                <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-weight: 500;">Security PIN</span>
+                        <span class="badge ${this.state.hasSecurityPin ? 'badge-success' : 'badge-warning'}" style="font-size: 0.7rem;">
+                            ${this.state.hasSecurityPin ? 'Active' : 'Not Set'}
+                        </span>
+                    </div>
+                    <span>▼</span>
+                </div>
+                <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                        Used for sensitive actions like deleting ${role === 'admin' ? 'branches' : 'sales'}.
+                    </p>
+                    <div id="pin-message" class="message-box hidden"></div>
+                    <form id="pin-form" class="auth-form" style="max-width: 100%;">
+                        ${this.state.hasSecurityPin ? `
                                 <div class="input-group">
                                     <label>Current PIN</label>
                                     <input type="password" id="pin-old" required maxlength="6" placeholder="Enter current PIN" autocomplete="off">
                                 </div>
                             ` : ''}
-                            
-                            <div class="input-group">
-                                <label>${this.state.hasSecurityPin ? 'New PIN' : 'Create PIN'}</label>
-                                <input type="password" id="pin-new" required maxlength="6" minlength="4" placeholder="Enter 4-6 digit PIN" autocomplete="off">
-                            </div>
-                            
-                            <div class="input-group">
-                                <label>Confirm PIN</label>
-                                <input type="password" id="pin-confirm" required maxlength="6" minlength="4" placeholder="Confirm PIN" autocomplete="off">
-                            </div>
 
-                            <button type="submit" class="btn-primary" style="width: auto;">
-                                ${this.state.hasSecurityPin ? 'Update PIN' : 'Set PIN'}
-                            </button>
-                        </form>
-                    </div>
+                        <div class="input-group">
+                            <label>${this.state.hasSecurityPin ? 'New PIN' : 'Create PIN'}</label>
+                            <input type="password" id="pin-new" required maxlength="6" minlength="4" placeholder="Enter 4-6 digit PIN" autocomplete="off">
+                        </div>
+
+                        <div class="input-group">
+                            <label>Confirm PIN</label>
+                            <input type="password" id="pin-confirm" required maxlength="6" minlength="4" placeholder="Confirm PIN" autocomplete="off">
+                        </div>
+
+                        <button type="submit" class="btn-primary" style="width: auto;">
+                            ${this.state.hasSecurityPin ? 'Update PIN' : 'Set PIN'}
+                        </button>
+                    </form>
                 </div>
             </div>
+        </div>
         `;
 
         content += `</div></div>`; // Close grid and card
@@ -7439,7 +7812,7 @@ const app = {
                         if (!this.state.currentProfile) this.state.currentProfile = {};
                         this.state.currentProfile.currency = newCurrency;
                         this.state.currentCurrency = newCurrency;
-                        this.showToast(`Currency updated to ${newCurrency}`, "success");
+                        this.showToast(`Currency updated to ${newCurrency} `, "success");
                     } catch (err) {
                         console.error(err);
                         this.showToast("Failed to update currency", "error");
@@ -7597,10 +7970,10 @@ const app = {
                     const svg = this.querySelector("svg");
                     if (passwordInput.type === "password") {
                         passwordInput.type = "text";
-                        svg.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>`;
+                        svg.innerHTML = `< path d = "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" ></path > <line x1="1" y1="1" x2="23" y2="23"></line>`;
                     } else {
                         passwordInput.type = "password";
-                        svg.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>`;
+                        svg.innerHTML = `< path d = "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" ></path > <circle cx="12" cy="12" r="3"></circle>`;
                     }
                 });
             });
@@ -7715,7 +8088,7 @@ const app = {
         const profile = this.state.currentProfile;
         if (profile?.role === 'enterprise_admin') {
             this.dom.contentArea.innerHTML = `
-                <div class="welcome-card card page-enter" onclick="event.stopPropagation(); this.classList.toggle('expanded')" style="animation-delay: 0.05s; margin-bottom: 2rem; cursor: pointer; transition: all 0.3s ease;">
+    < div class="welcome-card card page-enter" onclick = "event.stopPropagation(); this.classList.toggle('expanded')" style = "animation-delay: 0.05s; margin-bottom: 2rem; cursor: pointer; transition: all 0.3s ease;" >
                     <div class="card-header" style="border-bottom: none; padding-bottom: 0;">
                         <h3 class="card-title">Welcome back, ${profile.full_name || 'Admin'}!</h3>
                         <span class="hint-text mobile-hint" style="font-size: 0.7rem; color: var(--text-muted); float: right;">Click for Options</span>
@@ -7735,7 +8108,7 @@ const app = {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div >
 
     <div class="stats-grid page-enter">
         <div class="stat-card">
@@ -7759,7 +8132,7 @@ const app = {
 `;
         } else {
             this.dom.contentArea.innerHTML = `
-                <div class="card page-enter">
+    < div class="card page-enter" >
                     <div class="card-header">
                         <h3 class="card-title">Branch Dashboard</h3>
                     </div>
@@ -7790,7 +8163,7 @@ const app = {
         // Missing Profile Handling
         if (!profile) {
             this.dom.contentArea.innerHTML = `
-                <div class="card page-enter" style="max-width: 500px; margin: 2rem auto;">
+    < div class="card page-enter" style = "max-width: 500px; margin: 2rem auto;" >
                     <div class="card-header">
                         <h3 class="card-title">Complete Your Setup</h3>
                     </div>
@@ -7884,7 +8257,7 @@ const app = {
             const op = urlParams.get('op');
 
             if (normalizedUrlPage && normalizedUrlPage !== urlPage) {
-                window.history.replaceState({ page: initialPage, op: op }, '', `?page=${normalizedUrlPage}${op ? `&op=${op}` : ''}`);
+                window.history.replaceState({ page: initialPage, op: op }, '', `? page = ${normalizedUrlPage}${op ? `&op=${op}` : ''} `);
             }
 
             // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync
