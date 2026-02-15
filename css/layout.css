@@ -104,6 +104,12 @@
 .nav-item.active {
     color: var(--primary);
     background: var(--primary-light);
+    font-weight: 700;
+}
+
+[data-theme="light"] .nav-item.active {
+    background: #000000;
+    color: #ffffff;
 }
 
 .nav-item.active::before {
@@ -173,12 +179,15 @@
 }
 
 .top-bar h2 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    background: var(--gradient-text);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-size: 1.65rem;
+    font-weight: 850;
+    color: var(--text-main);
+}
+
+[data-theme="light"] .top-bar h2 {
+    background: none;
+    -webkit-text-fill-color: initial;
+    color: #000000;
 }
 
 /* Page Container */

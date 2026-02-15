@@ -94,25 +94,31 @@ export const Auth = {
         localStorage.setItem('bms-branch-token', branchData.api_token);
         updateSupabaseClient({ 'x-branch-token': branchData.api_token });
 
-        // Fetch FULL branch details (RPC missing some fields like branch_login_id, theme)
+        // Fetch FULL branch details to ensure all profile fields (address, phone, etc.) are loaded
         const { data: fullBranch, error: fetchError } = await supabase
             .from('branches')
             .select('*')
-            .eq('id', branchData.id)
+            .eq('id', branchData.branch_id)
             .single();
 
         if (fetchError || !fullBranch) {
-            // Fallback to partial data if fetch fails
-            this.branch = branchData;
+            // Fallback to data returned by RPC if fetch fails
+            this.branch = {
+                id: branchData.branch_id,
+                name: branchData.branch_name,
+                enterprise_id: branchData.enterprise_id,
+                theme: branchData.theme,
+                currency: branchData.currency
+            };
             this.profile = {
-                id: branchData.id,
-                full_name: branchData.name,
+                id: branchData.branch_id,
+                full_name: branchData.branch_name,
                 role: 'branch_manager',
                 enterprise_id: branchData.enterprise_id,
-                branch_id: branchData.id,
-                branch_login_id: loginId, // Fallback to input
-                theme: 'light',
-                currency: 'TZS'
+                branch_id: branchData.branch_id,
+                branch_login_id: loginId,
+                theme: branchData.theme || 'light',
+                currency: branchData.currency || 'TZS'
             };
         } else {
             this.branch = fullBranch;

@@ -9,9 +9,10 @@
     backdrop-filter: blur(20px);
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
-    padding: 1.5rem;
+    padding: 2rem;
     transition: var(--transition-base);
     position: relative;
+    box-shadow: var(--shadow-md);
 }
 
 .card:has(.dropdown-panel:not(.hidden)) {
@@ -31,8 +32,8 @@
 }
 
 .card:hover {
-    border-color: rgba(16, 185, 129, 0.3);
-    box-shadow: var(--shadow-md), var(--glow-primary);
+    border-color: var(--border);
+    box-shadow: var(--shadow-lg);
 }
 
 .card-header {
@@ -45,12 +46,15 @@
 }
 
 .card-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    background: var(--gradient-text);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-size: 1.35rem;
+    font-weight: 850;
+    color: var(--text-main);
+}
+
+[data-theme="light"] .card-title {
+    background: none;
+    -webkit-text-fill-color: initial;
+    color: #000000;
 }
 
 /* Tables */

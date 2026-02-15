@@ -2317,6 +2317,12 @@ const app = {
     },
 
     loadPage(page, isTopLevel = false, skipHistory = false, skipBrowserPush = false, op = null) {
+        // Robustness shortcut: If loadPage('operations', 'sales') is called, fix arguments
+        if (page === 'operations' && typeof isTopLevel === 'string' && !op) {
+            op = isTopLevel;
+            isTopLevel = false;
+        }
+
         this.state.currentPage = page;
         const profile = this.state.currentProfile;
         const role = profile?.role === 'enterprise_admin' ? 'admin' : 'branch';
@@ -2455,19 +2461,25 @@ const app = {
             // We can leave it as is (showing 'Select an Operation')
         }
 
-        // Main Container — show recent activity feed
-        this.dom.contentArea.innerHTML = `
-            <div id="ops-canvas" class="action-canvas page-enter">
-                <div style="margin-top: 1rem;">
-                    <h3 style="margin-bottom: 0.25rem;">⚡ Operations</h3>
-                    <p class="text-muted" style="margin-bottom: 1.25rem;">Recent activity across your modules.</p>
-                    <div id="ops-recent-feed">${this.getLoaderHTML()}</div>
+        // Main Container — show recent activity feed or module shell
+        if (this.state.activeOp) {
+            this.dom.contentArea.innerHTML = `
+                <div id="ops-canvas" class="action-canvas">
+                    ${this.getLoaderHTML()}
                 </div>
-            </div>
-        `;
+            `;
+        } else {
+            this.dom.contentArea.innerHTML = `
+                <div id="ops-canvas" class="action-canvas">
+                    <div style="margin-top: 1rem;" class="page-enter">
 
-        // Load recent feed asynchronously
-        this.loadRecentActivityFeed();
+                        <div id="ops-recent-feed">${this.getLoaderHTML()}</div>
+                    </div>
+                </div>
+            `;
+            // Only load feed if on "Operations Home"
+            this.loadRecentActivityFeed();
+        }
 
         // Render Dock Container (empty initially)
         // Ensure old dock is removed first
@@ -2518,10 +2530,7 @@ const app = {
 
             canvas.innerHTML = `
                 <div class="page-enter">
-                    <div style="margin-bottom: 2rem;">
-                        <h3 style="margin-bottom: 0.5rem;">📊 Reports & Performance</h3>
-                        <p class="text-muted">Download operational reports and track product performance.</p>
-                    </div>
+
 
                     <!-- Quick Reports Section -->
                     <div class="card" style="margin-bottom: 2rem;">
@@ -3166,12 +3175,7 @@ const app = {
 
             canvas.innerHTML = `
             <div class="page-enter">
-                <div class="flex-between" style="margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Organize</h3>
-                        <p class="text-muted">Manage tags, categories, and business settings.</p>
-                    </div>
-                </div>
+
 
                 <div class="organize-list">
                     <!-- Tags -->
@@ -3576,12 +3580,7 @@ const app = {
 
         canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Categories</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Create groups for your products</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -3737,7 +3736,7 @@ const app = {
                      <div class="card">
                         <div class="flex-between">
                             <div class="flex-gap" style="align-items:center;">
-                            <h2>Add Product/Service</h2>
+
                             <button class="btn-small" onclick="app.openUnifiedProductsStockImportModal()" title="Import Products + Stock (CSV)">Import Products + Stock (CSV)</button>
                             </div>
                         </div>
@@ -5113,12 +5112,7 @@ const app = {
 
             canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Inventory</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Track stock movements and levels</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -5613,12 +5607,7 @@ const app = {
             // Restore original HTML layout
             canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Sales</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Record sales and track totals (Today)</div>
-                    </div>
-                </div>
+
 
                 <div class="stats-grid">
                     <div class="stat-card">
@@ -5680,7 +5669,7 @@ const app = {
                 ...branchTags.map(t => ({ value: t.name, label: t.name }))
             ], '', '-- No Tag --', 'app.handleSalesTagChange')}
                             </div>
-                            <button type="submit" class="btn-primary" style="width: auto;">Add Sale</button>
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">RECORD SALE</button>
                         </form>
                     </div>
                 </div>
@@ -5689,12 +5678,16 @@ const app = {
                     <div class="card-header" style="padding-bottom: 0;">
                         <h4 class="card-title">Recent Sales</h4>
                     </div>
-                    <div class="bulk-actions" style="margin: 8px 1rem;">
-                        <input type="checkbox" id="selectAll_sales" onchange="app.toggleSelectAll('sales')" class="checkbox-select">
-                        <label for="selectAll_sales">Select All</label>
-                        <span id="salesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
-                        <button id="btnBulkDeleteSales" class="btn-small btn-danger" onclick="app.bulkDelete('sales')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                        <button id="btnBulkTagSales" class="btn-small btn-tag" onclick="app.bulkApplyTag('sales')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_sales" onchange="app.toggleSelectAll('sales')" class="checkbox-select">
+                            <label for="selectAll_sales">Select All</label>
+                            <span id="salesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteSales" class="btn-small btn-danger" onclick="app.bulkDelete('sales')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                            <button id="btnBulkTagSales" class="btn-small btn-tag" onclick="app.bulkApplyTag('sales')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                        </div>
                     </div>
                     ${salesList.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
@@ -6249,12 +6242,7 @@ const app = {
 
             canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Expenses</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Track spending and operational costs</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -6304,12 +6292,16 @@ const app = {
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Expenses</h4>
                     </div>
-                    <div class="bulk-actions" style="margin: 8px 1rem;">
-                        <input type="checkbox" id="selectAll_expenses" onchange="app.toggleSelectAll('expenses')" class="checkbox-select">
-                        <label for="selectAll_expenses">Select All</label>
-                        <span id="expensesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
-                        <button id="btnBulkDeleteExpenses" class="btn-small btn-danger" onclick="app.bulkDelete('expenses')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                        <button id="btnBulkTagExpenses" class="btn-small btn-tag" onclick="app.bulkApplyTag('expenses')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_expenses" onchange="app.toggleSelectAll('expenses')" class="checkbox-select">
+                            <label for="selectAll_expenses">Select All</label>
+                            <span id="expensesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteExpenses" class="btn-small btn-danger" onclick="app.bulkDelete('expenses')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                            <button id="btnBulkTagExpenses" class="btn-small btn-tag" onclick="app.bulkApplyTag('expenses')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                        </div>
                     </div>
                     ${expenses.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>
@@ -6655,12 +6647,7 @@ const app = {
 
             canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Income</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Track extra income streams</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -6710,12 +6697,16 @@ const app = {
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Income</h4>
                     </div>
-                    <div class="bulk-actions" style="margin: 8px 1rem;">
-                        <input type="checkbox" id="selectAll_income" onchange="app.toggleSelectAll('income')" class="checkbox-select">
-                        <label for="selectAll_income">Select All</label>
-                        <span id="incomeSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
-                        <button id="btnBulkDeleteIncome" class="btn-small btn-danger" onclick="app.bulkDelete('income')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                        <button id="btnBulkTagIncome" class="btn-small btn-tag" onclick="app.bulkApplyTag('income')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_income" onchange="app.toggleSelectAll('income')" class="checkbox-select">
+                            <label for="selectAll_income">Select All</label>
+                            <span id="incomeSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteIncome" class="btn-small btn-danger" onclick="app.bulkDelete('income')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                            <button id="btnBulkTagIncome" class="btn-small btn-tag" onclick="app.bulkApplyTag('income')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                        </div>
                     </div>
                     ${incomeEntries.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No income entries recorded yet.</div>
@@ -6929,12 +6920,7 @@ const app = {
 
             canvas.innerHTML = `
             <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Notes</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Quick notes for daily operations</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -6971,12 +6957,16 @@ const app = {
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Notes</h4>
                     </div>
-                    <div class="bulk-actions" style="margin: 8px 1rem;">
-                        <input type="checkbox" id="selectAll_notes" onchange="app.toggleSelectAll('notes')" class="checkbox-select">
-                        <label for="selectAll_notes">Select All</label>
-                        <span id="notesSelectedCount" style="color: #666; font-size: 12px; margin-left: 8px;">0 selected</span>
-                        <button id="btnBulkDeleteNotes" class="btn-small btn-danger" onclick="app.bulkDelete('notes')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                        <button id="btnBulkTagNotes" class="btn-small btn-tag" onclick="app.bulkApplyTag('notes')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_notes" onchange="app.toggleSelectAll('notes')" class="checkbox-select">
+                            <label for="selectAll_notes">Select All</label>
+                            <span id="notesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteNotes" class="btn-small btn-danger" onclick="app.bulkDelete('notes')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                            <button id="btnBulkTagNotes" class="btn-small btn-tag" onclick="app.bulkApplyTag('notes')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                        </div>
                     </div>
                     ${notes.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
@@ -7339,12 +7329,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Customers</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Manage customer contacts</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -7463,12 +7448,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Invoices & Receivables</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Track customer invoices</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -7612,12 +7592,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Reports</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Save report requests for quick access</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -7738,12 +7713,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Loans</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Track loans and repayments</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -7875,12 +7845,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Assets</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Keep track of branch assets</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -8002,12 +7967,7 @@ const app = {
 
             canvas.innerHTML = `
 <div class="page-enter">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <div>
-                        <h3>Maintenance</h3>
-                        <div class="text-muted" style="font-size: 0.85rem;">Log maintenance tasks</div>
-                    </div>
-                </div>
+
 
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -8927,15 +8887,49 @@ const app = {
         } else {
             this.dom.contentArea.innerHTML = `
 <div class="page-enter">
-    <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">Branch Dashboard</h3>
-                    </div>
-                    <p style="color: var(--text-muted);">Welcome to <strong style="color: var(--text-main);">${profile?.full_name || 'your branch'}</strong>.</p>
-                    <p style="color: var(--text-muted);">Access your tasks and sales using the sidebar navigation.</p>
-                </div>
+    <!-- Welcome Header -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header">
+            <h3 class="card-title">Branch Dashboard</h3>
+        </div>
+        <p style="color: var(--text-muted);">Welcome to <strong style="color: var(--text-main);">${profile?.full_name || 'your branch'}</strong>.</p>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Access your tasks and sales using the sidebar or the quick links below.</p>
+    </div>
+
+    <!-- Quick Actions Grid -->
+    <h4 style="margin-bottom: 1rem; color: var(--text-main); font-weight: 600;">Quick Actions</h4>
+    <div class="quick-links-grid">
+        <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'sales')">
+            <div class="ql-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">💰</div>
+            <div class="ql-label">New Sale</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'expenses')">
+            <div class="ql-icon" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;">💸</div>
+            <div class="ql-label">New Expense</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'inventory')">
+            <div class="ql-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">📦</div>
+            <div class="ql-label">Inventory</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('analytics')">
+            <div class="ql-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">📊</div>
+            <div class="ql-label">Analytics</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'reports')">
+            <div class="ql-icon" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">📈</div>
+            <div class="ql-label">Reports</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'loans')">
+            <div class="ql-icon" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">🏦</div>
+            <div class="ql-label">Loans</div>
+        </div>
+        <div class="quick-link-card" onclick="app.loadPage('profile')">
+            <div class="ql-icon" style="background: rgba(107, 114, 128, 0.1); color: #6b7280;">👤</div>
+            <div class="ql-label">My Profile</div>
+        </div>
+    </div>
 </div>
-            `;
+`;
         }
     },
 

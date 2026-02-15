@@ -102,10 +102,6 @@
                 <!-- Branch Login Form -->
                 <form id="branch-login-form" class="auth-form hidden">
                     <div class="input-group">
-                        <label for="branch-enterprise-email">Enterprise Email</label>
-                        <input type="email" id="branch-enterprise-email" placeholder="admin@company.com" required>
-                    </div>
-                    <div class="input-group">
                         <label for="branch-login-id">Branch ID</label>
                         <input type="text" id="branch-login-id" placeholder="e.g. BR-NO-001-KDM" required>
                     </div>
@@ -125,7 +121,14 @@
                             </button>
                         </div>
                     </div>
-                    <button type="submit" class="btn-primary">Branch Login →</button>
+                    <div class="input-group"
+                        style="margin-top: 1.5rem; border-top: 1px dashed var(--border); padding-top: 1.25rem;">
+                        <label for="branch-enterprise-email" style="font-size: 0.8rem; opacity: 0.8;">Enterprise Email
+                            (Verification)</label>
+                        <input type="email" id="branch-enterprise-email" placeholder="admin@company.com" required
+                            autocomplete="off" data-lpignore="true" data-form-type="other">
+                    </div>
+                    <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Branch Login →</button>
                     <div style="text-align: center; margin-top: 0.5rem;">
                         <a href="#" id="branch-forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
                     </div>
@@ -527,10 +530,10 @@
                 navigator.serviceWorker.register('./sw.js').then(registration => {
                     console.log('ServiceWorker registered');
 
-                    // Check for updates every 5 minutes
+                    // Check for updates every 60 seconds
                     setInterval(() => {
                         registration.update();
-                    }, 5 * 60 * 1000);
+                    }, 60 * 1000);
 
                     registration.addEventListener('updatefound', () => {
                         const newWorker = registration.installing;
@@ -554,6 +557,14 @@
                 window.location.reload();
             });
         }
+
+        // Debug utility: Clear all caches via console
+        // Usage: clearAppCache() in browser console
+        window.clearAppCache = async () => {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(key => caches.delete(key)));
+            console.log('✓ All caches cleared. Reload to fetch fresh data.');
+        };
     </script>
 </body>
 

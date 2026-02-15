@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-bms-v42';
+const CACHE_NAME = 'nexus-bms-v47';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -56,15 +56,25 @@ self.addEventListener('activate', (event) => {
     return self.clients.claim();
 });
 
-// Fetch Event - Network First, then Cache (Stale fallback)
+// Fetch Event - Network First for static assets, NEVER cache API calls
 self.addEventListener('fetch', (event) => {
-    // Skip cross-origin and non-GET requests
-    if (!event.request.url.startsWith(self.location.origin) || event.request.method !== 'GET') {
+    const url = new URL(event.request.url);
+
+    // NEVER cache API calls or non-GET requests
+    // This includes all Supabase API calls and authentication endpoints
+    if (
+        event.request.method !== 'GET' ||
+        url.hostname.includes('supabase.co') ||
+        url.pathname.includes('/rest/v1/') ||
+        url.pathname.includes('/auth/v1/') ||
+        url.hostname !== self.location.hostname
+    ) {
+        // Let API calls pass through directly to network, no caching
         return;
     }
 
+    // Only cache static assets from our origin (HTML, CSS, JS, images)
     event.respondWith(
-        // Force network fetch to ensure we get the latest content
         fetch(event.request, { cache: 'no-cache' })
             .then((response) => {
                 // If network fetch succeeds, update the cache and return
@@ -80,8 +90,20 @@ self.addEventListener('fetch', (event) => {
                 return response;
             })
             .catch(() => {
-                // If network fails (offline), return from cache
-                console.log('[Service Worker] Network failed, serving from cache:', event.request.url);
+                // If network fails (offline), try to serve from cache
+                return caches.match(event.request).then((cachedResponse) => {
+                    if (cachedResponse) {
+                        console.log('[Service Worker] Offline - serving from cache:', event.request.url);
+                        return cachedResponse;
+                    }
+                    // No cache available, return basic offline response
+                    console.log('[Service Worker] Offline - no cached version available:', event.request.url);
+                    return new Response('Offline - no cached version available', {
+                        status: 503,
+                        statusText: 'Service Unavailable',
+                        headers: { 'Content-Type': 'text/plain' }
+                    });
+                });
             })
     );
 });
