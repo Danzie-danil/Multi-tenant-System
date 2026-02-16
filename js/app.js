@@ -2268,6 +2268,9 @@ const app = {
     },
 
     adjustStatFontSizes() {
+        // NOTE: Redundant since switching to CSS fluid typography (clamp + container queries)
+        // See components.css .stat-value
+        /*
         if (window.innerWidth > 768) return; // Only on mobile
 
         const statValues = document.querySelectorAll('.stat-value');
@@ -2288,6 +2291,7 @@ const app = {
                 el.style.fontSize = fontSize + 'px';
             }
         });
+        */
     },
 
     bindCollapseControls(container = document) {
@@ -2428,7 +2432,7 @@ const app = {
 
         // Run font resizing after content is likely rendered
         // Give enough time for DOM to stabilize and for currency formatting to complete
-        setTimeout(() => this.adjustStatFontSizes(), 50);
+        // setTimeout(() => this.adjustStatFontSizes(), 50);
     },
 
     renderOperations() {
@@ -3557,8 +3561,11 @@ const app = {
         canvas.innerHTML = content;
     },
 
-    async renderCategoriesModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    async renderCategoriesModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
         const [categories, products] = await Promise.all([
             this.fetchBranchCategories(),
             this.fetchBranchProducts()
@@ -3568,8 +3575,9 @@ const app = {
         const items = pagedCategories.map(cat => {
             const catJson = encodeURIComponent(JSON.stringify(cat));
             const count = products.filter(p => p.categoryId === cat.id).length;
+            const searchTerm = `${cat.name} ${cat.description || ''}`.toLowerCase();
             return `
-                <div class="item" data-category-id="${cat.id}" data-category="${catJson}">
+                <div class="item category-item" data-category-id="${cat.id}" data-category="${catJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select categories-checkbox" value="${cat.id}" onchange="app.toggleSelect('categories', '${cat.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${cat.name}</div>
@@ -3588,58 +3596,79 @@ const app = {
             `;
         }).join('');
 
-        canvas.innerHTML = `
-        <div class="page-enter">
-            <div class="card" style="margin-bottom: 1.5rem;">
-                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                    <h4 class="card-title">New Category</h4>
-                    <button type="button" class="btn-ghost" data-collapse-target="ops-categories-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
-                </div>
-                <div id="ops-categories-body" class="hidden">
-                    <div id="ops-categories-message" class="message-box hidden"></div>
-                    <form id="ops-categories-form" class="auth-form" style="max-width: 100%;">
-                        <div class="input-group">
-                            <label>Category Name</label>
-                            <input type="text" id="category-name" placeholder="e.g. Electronics" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Description</label>
-                            <input type="text" id="category-description" placeholder="Optional">
-                        </div>
-                        <button type="submit" class="btn-primary" style="width: auto;">Add Category</button>
-                    </form>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title">Categories</h4>
-                </div>
-                <div class="bulk-actions">
-                    <div class="bulk-actions-info">
-                        <input type="checkbox" id="selectAll_categories" onchange="app.toggleSelectAll('categories')" class="checkbox-select">
-                        <label for="selectAll_categories">Select All</label>
-                        <span id="categoriesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
-                    </div>
-                    <div class="bulk-actions-buttons">
-                        <button id="btnBulkDeleteCategories" class="btn-small btn-danger" onclick="app.bulkDelete('categories')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
-                    </div>
-                </div>
+        const listHtml = `
                 ${categories.length === 0 ? `
                     <div class="text-muted" style="padding: 1rem;">No categories added yet.</div>
                 ` : `
-                    <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
+                    <div id="categoriesList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
                         ${items}
                     </div>
                     ${this.renderPaginationControls('categories', categoriesPage, categoriesPages)}
                 `}
-            </div>
-        </div>
         `;
+
+        if (isPartial) {
+            const wrapper = document.getElementById('categoriesListWrapper');
+            if (wrapper) wrapper.innerHTML = listHtml;
+
+            // Re-apply search filter
+            const searchInput = document.getElementById('categoriesSearch');
+            if (searchInput && searchInput.value) {
+                this.searchModuleItems(searchInput.value, '#categoriesList');
+            }
+        } else {
+            canvas.innerHTML = `
+            <div class="page-enter">
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Category</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-categories-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Create</button>
+                    </div>
+                    <div id="ops-categories-body" class="hidden">
+                        <div id="ops-categories-message" class="message-box hidden"></div>
+                        <form id="ops-categories-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Category Name</label>
+                                <input type="text" id="category-name" placeholder="e.g. Electronics" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Description</label>
+                                <input type="text" id="category-description" placeholder="Optional">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Add Category</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" style="padding-bottom:0;">
+                        <h4 class="card-title">Categories</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search categories..." oninput="app.searchModuleItems(this.value, '#categoriesList'); app.toggleClearButton('categoriesSearch', 'categoriesClearBtn')" id="categoriesSearch" autocomplete="off">
+                        <button id="categoriesClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('categoriesSearch', 'categoriesClearBtn', '#categoriesList')" title="Clear">Clear</button>
+                    </div>
+                    <div class="bulk-actions">
+                        <div class="bulk-actions-info">
+                            <input type="checkbox" id="selectAll_categories" onchange="app.toggleSelectAll('categories')" class="checkbox-select">
+                            <label for="selectAll_categories">Select All</label>
+                            <span id="categoriesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                        </div>
+                        <div class="bulk-actions-buttons">
+                            <button id="btnBulkDeleteCategories" class="btn-small btn-danger" onclick="app.bulkDelete('categories')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
+                        </div>
+                    </div>
+                    <div id="categoriesListWrapper">
+                        ${listHtml}
+                    </div>
+                </div>
+            </div>
+            `;
+        }
 
         setTimeout(() => {
             this.bindCollapseControls(canvas);
-            this.bindPaginationControls(canvas, 'categories', categoriesPages, () => this.renderCategoriesModule(canvas));
+            this.bindPaginationControls(canvas, 'categories', categoriesPages, () => this.renderCategoriesModule(canvas, true));
             const form = document.getElementById('ops-categories-form');
             if (form) {
                 form.addEventListener('submit', async (e) => {
@@ -3701,11 +3730,12 @@ const app = {
         }, 0);
     },
 
-    renderProductsModule(canvas) {
-        // Initialize selection state
-        this.state.activeSelection = new Set();
-
-        canvas.innerHTML = this.getLoaderHTML();
+    renderProductsModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            // Initialize selection state
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([
             this.fetchBranchCategories(),
@@ -3838,6 +3868,133 @@ const app = {
                                 `).join('')}
                             </div>
                         </div>
+                        </div>
+                        <div id="productsListWrapper">
+                            <div id="productsList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                ${this.renderProductListItems(pagedProducts, categories, tags, productTags)}
+                            </div>
+                            ${this.renderPaginationControls('products', productsPage, productsPages)}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const listHtml = `
+                <div id="productsList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    ${this.renderProductListItems(pagedProducts, categories, tags, productTags)}
+                </div>
+                ${this.renderPaginationControls('products', productsPage, productsPages)}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('productsListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('productSearchBottom');
+                if (searchInput && searchInput.value) {
+                    this.searchProducts(searchInput.value);
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
+                     <div class="card">
+                        <div class="flex-between">
+                            <div class="flex-gap" style="align-items:center;">
+
+                            <button class="btn-small" onclick="app.openUnifiedProductsStockImportModal()" title="Import Products + Stock (CSV)">Import Products + Stock (CSV)</button>
+                            </div>
+                        </div>
+                        <div class="flex-gap" style="justify-content:flex-end;margin-top:6px;">
+                            <button class="quick-nav-btn back" onclick="app.loadPage('sales')" title="← Sales">← Sales</button>
+                        </div>
+                        <form onsubmit="app.handleAddProduct(event)">
+                            <div class="form-group">
+                                <label>Item Type</label>
+                                <!-- Hidden select for form submission reference -->
+                                <select id="productHasStock" style="display:none;">
+                                    <option value="yes" selected>Product</option>
+                                    <option value="no">Service</option>
+                                </select>
+                                ${this.renderCustomDropdown('typeSearchDropdown', itemTypeOptions, 'yes', 'Product (has stock)', 'app.handleItemTypeChange')}
+                            </div>
+                            <div class="form-group">
+                                <label>Category</label>
+                                <select id="productCategory" required="" style="display: none;">
+                                    <option value="">-- Select Category --</option>
+                                </select>
+                                ${this.renderCustomDropdown('categorySearchDropdown', categoryOptions, '', '-- Select Category --', 'app.handleCategoryChange')}
+                            </div>
+                            <div class="form-group" id="newCategoryFields" style="display:none;">
+                                <label>New Category Name</label>
+                                <input type="text" id="newCategoryName" placeholder="Enter new category name">
+                            </div>
+                            <div class="form-group">
+                                <label>Sale Unit</label>
+                                <input type="text" id="productSaleUnit" placeholder="Describe sale unit (e.g., piece, bottle)">
+                            </div>
+                            <div class="form-group">
+                                <label>Purchase Unit</label>
+                                <input type="text" id="productPurchaseUnit" placeholder="Describe purchase unit (e.g., carton, pack)">
+                            </div>
+                            <div class="form-group">
+                                <label>Units per Purchase</label>
+                                <input type="number" id="productUnitsPerPurchase" placeholder="Units per purchase (e.g., 24)" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label>Item Name</label>
+                                <input type="text" id="productName" placeholder="Enter item name" required="">
+                            </div>
+                            <div class="form-group">
+                                <label>Cost (Capital)</label>
+                                <input type="number" id="productCost" class="money-input" placeholder="0" required="" min="0" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label>Price (Selling)</label>
+                                <input type="number" id="productPrice" class="money-input" placeholder="0" required="" min="0" step="0.01">
+                            </div>
+                            <div class="form-group" id="initialStockGroup">
+                                <label>Initial Stock</label>
+                                <input type="number" id="productStock" class="money-input" placeholder="0" value="0" min="0">
+                            </div>
+                            <div class="form-group" id="productInventoryLinkGroup">
+                                <label>Link to Inventory Period</label>
+                                <div class="flex-gap" style="flex-wrap:wrap;align-items:end;gap:8px;">
+                                     <!-- Hidden select -->
+                                    <select id="productInvPeriodSelect" style="display:none;">
+                                        <option value="">Latest</option>
+                                    </select>
+                                    <div style="min-width:200px; flex:1;">
+                                        ${this.renderCustomDropdown('invPeriodDropdown', invPeriodOptions, '', 'Latest or create new', 'app.handleInvPeriodChange')}
+                                    </div>
+                                    <label style="font-size:12px; color:#666;">
+                                        <input type="checkbox" id="productInvCreateNewPeriod"> Create New Period
+                                    </label>
+                                    <input type="text" id="productInvNewPeriodTitle" placeholder="New Period Title" style="min-width:220px;">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary" title="Add Product">Add Product</button>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <h2>All Items (${products.length})</h2>
+                        <div class="search-box">
+                            <input type="search" placeholder="🔍 Search items..." oninput="app.searchProducts(this.value); app.toggleClearButton('productSearchBottom', 'productClearBtnBottom')" id="productSearchBottom" autocomplete="off">
+                            <button id="productClearBtnBottom" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearProductSearch()" title="Clear">Clear</button>
+                        </div>
+                        <div style="margin-bottom:8px;">
+                            <div class="tags-scroll" style="touch-action: pan-x;">
+                                <button class="btn-small btn-tag ${!this.state.productTagFilter ? 'active' : ''}" onclick="app.toggleTagFilter('products', null)">All</button>
+                                ${tags.map(tag => `
+                                    <button class="btn-small btn-tag ${this.state.productTagFilter === tag.id ? 'active' : ''}" 
+                                            onclick="app.toggleTagFilter('products', '${tag.id}')"
+                                            style="border-color:${tag.color}; color:${this.state.productTagFilter === tag.id ? '#fff' : tag.color}; background-color:${this.state.productTagFilter === tag.id ? tag.color : 'transparent'};">
+                                        ${tag.name}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
                         <div class="bulk-actions">
                             <input type="checkbox" id="selectAll_products" onchange="app.toggleSelectAll('products')" class="checkbox-select">
                             <label for="selectAll_products">Select All</label>
@@ -3845,17 +4002,17 @@ const app = {
                             <button id="btnBulkDeleteProducts" class="btn-small btn-danger" onclick="app.bulkDelete('products')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
                             <button id="btnBulkTagProducts" class="btn-small btn-tag" onclick="app.bulkApplyTag('products')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                         </div>
-                        <div id="productsList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${this.renderProductListItems(pagedProducts, categories, tags, productTags)}
+                        <div id="productsListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('products', productsPage, productsPages)}
                     </div>
                 </div>
             `;
+            }
 
             // Re-apply states
             this.toggleInitialStock();
-            this.bindPaginationControls(canvas, 'products', productsPages, () => this.renderProductsModule(canvas));
+            this.bindPaginationControls(canvas, 'products', productsPages, () => this.renderProductsModule(canvas, true));
         });
     },
 
@@ -3873,6 +4030,11 @@ const app = {
             const productJson = encodeURIComponent(JSON.stringify(product));
             const category = categories.find(c => c.id === product.categoryId);
             const itemTags = productTags.filter(pt => pt.product_id === product.id);
+            const tagsList = itemTags.map(t => {
+                const tag = tags.find(bt => bt.id === t.tag_id);
+                return tag ? tag.name : '';
+            }).filter(Boolean).join(' ');
+            const searchTerm = `${product.name} ${category ? category.name : ''} ${product.stock} ${product.unit || ''} ${tagsList}`.toLowerCase();
             const tagUnix = itemTags.map(t => {
                 const tag = tags.find(bt => bt.id === t.tag_id);
                 if (!tag) return '';
@@ -3880,7 +4042,7 @@ const app = {
             }).filter(Boolean).join('');
 
             return `
-                <div class="item product-item" data-product-id="${product.id}" data-product="${productJson}">
+                <div class="item product-item" data-product-id="${product.id}" data-product="${productJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select products-checkbox" value="${product.id}" onchange="app.toggleSelect('products', '${product.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;" onclick="app.showEditProductModal('${product.id}')">
                         <div class="item-title" style="display: flex; align-items: center; gap: 8px;">
@@ -4992,22 +5154,30 @@ const app = {
     },
 
 
-    searchProducts(query) {
+    searchModuleItems(query, listContainerSelector) {
         query = query.toLowerCase();
-        const items = document.querySelectorAll('#productsList .item');
+        const items = document.querySelectorAll(`${listContainerSelector} .item`);
         items.forEach(item => {
-            const term = item.getAttribute('data-search-term');
-            item.style.display = term.includes(query) ? 'block' : 'none';
+            const term = (item.getAttribute('data-search-term') || '').toLowerCase();
+            item.style.display = term.includes(query) ? 'grid' : 'none'; // Note: items are usually display:grid
         });
     },
 
-    clearProductSearch() {
-        const input = document.getElementById('productSearchBottom');
+    clearModuleSearch(inputId, btnId, listContainerSelector) {
+        const input = document.getElementById(inputId);
         if (input) {
             input.value = '';
-            this.searchProducts('');
-            this.toggleClearButton('productSearchBottom', 'productClearBtnBottom');
+            this.searchModuleItems('', listContainerSelector);
+            this.toggleClearButton(inputId, btnId);
         }
+    },
+
+    searchProducts(query) {
+        this.searchModuleItems(query, '#productsList');
+    },
+
+    clearProductSearch() {
+        this.clearModuleSearch('productSearchBottom', 'productClearBtnBottom', '#productsList');
     },
 
     toggleClearButton(inputId, btnId) {
@@ -5073,8 +5243,10 @@ const app = {
     showMoreList(type) { },
     showAllList(type) { },
 
-    renderInventoryModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    renderInventoryModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([
             this.fetchBranchProducts(),
@@ -5116,7 +5288,60 @@ const app = {
                 { value: 'out', label: 'Stock Out' }
             ];
 
-            canvas.innerHTML = `
+            const stockHtml = `
+                    ${stockProducts.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No stock items yet. Add products to track stock.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>Category</th>
+                                        <th>Stock</th>
+                                        <th>Low Stock</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${stockRows}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${this.renderPaginationControls('inventory-stock', stockPage, stockPages)}
+                    `}
+            `;
+
+            const movementsHtml = `
+                    ${inventory.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No stock movements yet.</div>
+                    ` : `
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Product</th>
+                                        <th>Type</th>
+                                        <th>Qty</th>
+                                        <th>Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${this.renderPaginationControls('inventory-movements', movementsPage, movementsPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const stockWrapper = document.getElementById('stockListWrapper');
+                if (stockWrapper) stockWrapper.innerHTML = stockHtml;
+                const movementsWrapper = document.getElementById('movementsListWrapper');
+                if (movementsWrapper) movementsWrapper.innerHTML = movementsHtml;
+            } else {
+                canvas.innerHTML = `
             <div class="page-enter">
 
 
@@ -5161,61 +5386,27 @@ const app = {
                     <div class="card-header">
                         <h4 class="card-title">Current Stock</h4>
                     </div>
-                    ${stockProducts.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No stock items yet. Add products to track stock.</div>
-                    ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Product</th>
-                                        <th>Category</th>
-                                        <th>Stock</th>
-                                        <th>Low Stock</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${stockRows}
-                                </tbody>
-                            </table>
-                        </div>
-                        ${this.renderPaginationControls('inventory-stock', stockPage, stockPages)}
-                    `}
+                    <div id="stockListWrapper">
+                        ${stockHtml}
+                    </div>
                 </div>
 
                 <div class="card">
                     <div class="card-header">
                         <h4 class="card-title">Recent Movements</h4>
                     </div>
-                    ${inventory.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No stock movements yet.</div>
-                    ` : `
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Product</th>
-                                        <th>Type</th>
-                                        <th>Qty</th>
-                                        <th>Note</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
-                        </div>
-                        ${this.renderPaginationControls('inventory-movements', movementsPage, movementsPages)}
-                    `}
+                    <div id="movementsListWrapper">
+                        ${movementsHtml}
+                    </div>
                 </div>
             </div>
         `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'inventory-stock', stockPages, () => this.renderInventoryModule(canvas));
-                this.bindPaginationControls(canvas, 'inventory-movements', movementsPages, () => this.renderInventoryModule(canvas));
+                this.bindPaginationControls(canvas, 'inventory-stock', stockPages, () => this.renderInventoryModule(canvas, true));
+                this.bindPaginationControls(canvas, 'inventory-movements', movementsPages, () => this.renderInventoryModule(canvas, true));
                 const form = document.getElementById('ops-inventory-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -5525,10 +5716,12 @@ const app = {
         });
     },
 
-    renderSalesModule(canvas) {
+    renderSalesModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         const state = this.getPaginationState('sales');
         const currentPage = state.page || 1;
@@ -5570,8 +5763,11 @@ const app = {
                 const saleJson = encodeURIComponent(JSON.stringify(sale));
                 const itemTags = saleTags.filter(t => t.sale_id === sale.id);
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9); padding:2px 8px; border-radius:12px; font-size:10px; margin-right:4px; border:1px solid rgba(255,255,255,0.3);">${t.tag}</span>`).join('');
+
+                const searchTerm = `${sale.productName || ''} ${sale.customerName || ''} ${sale.categoryName || ''} ${sale.price || ''} ${sale.quantity || ''} ${itemTags.map(t => t.tag).join(' ')}`.toLowerCase();
+
                 return `
-                <div class="sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}">
+                <div class="item sale-item" style="border-left: 4px solid ${color};" data-sale-id="${sale.id}" data-sale="${saleJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select sales-checkbox" value="${sale.id}" onchange="app.toggleSelect('sales', '${sale.id}')" style="grid-row: span 3; align-self: start; margin-top: 5px;">
                     <div class="sale-item-header" style="grid-column: 2;">
                         <span class="sale-item-title">
@@ -5608,19 +5804,48 @@ const app = {
             `;
             }).join('');
 
-            // Restore original HTML layout
-            canvas.innerHTML = `
+            const listHtml = `
+                    ${salesList.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
+                    ` : `
+                        <div class="sale-list-wrapper">
+                            <div class="sale-items-list" id="sale-list-scroll-target">
+                                ${rows}
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                           ${this.renderPaginationControls('sales', currentPage, totalPages)}
+                        </div>
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('salesListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('salesSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#sale-list-scroll-target');
+                }
+            } else {
+                // Restore original HTML layout
+                canvas.innerHTML = `
             <div class="page-enter">
 
 
                 <div class="stats-grid">
                     <div class="stat-card">
+                        <div class="stat-icon">💰</div>
                         <div class="stat-label">Today's Profit</div>
                         <div class="stat-value">Loading...</div>
+                        <div class="stat-trend trend-up"><span>↑</span> Revenue</div>
                     </div>
                     <div class="stat-card">
+                        <div class="stat-icon">📊</div>
                         <div class="stat-label">Gross Profit</div>
                         <div class="stat-value">Loading...</div>
+                        <div class="stat-trend trend-up"><span>↑</span> Combined</div>
                     </div>
                 </div>
 
@@ -5669,9 +5894,9 @@ const app = {
                                     <option value="">-- No Tag --</option>
                                 </select>
                                 ${this.renderCustomDropdown('saleTagDropdown', [
-                { value: '', label: '-- No Tag --' },
-                ...branchTags.map(t => ({ value: t.name, label: t.name }))
-            ], '', '-- No Tag --', 'app.handleSalesTagChange')}
+                    { value: '', label: '-- No Tag --' },
+                    ...branchTags.map(t => ({ value: t.name, label: t.name }))
+                ], '', '-- No Tag --', 'app.handleSalesTagChange')}
                             </div>
                             <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">RECORD SALE</button>
                         </form>
@@ -5681,6 +5906,10 @@ const app = {
                 <div class="card">
                     <div class="card-header" style="padding-bottom: 0;">
                         <h4 class="card-title">Recent Sales</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search sales..." oninput="app.searchModuleItems(this.value, '#sale-list-scroll-target'); app.toggleClearButton('salesSearch', 'salesClearBtn')" id="salesSearch" autocomplete="off">
+                        <button id="salesClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('salesSearch', 'salesClearBtn', '#sale-list-scroll-target')" title="Clear">Clear</button>
                     </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
@@ -5693,50 +5922,18 @@ const app = {
                             <button id="btnBulkTagSales" class="btn-small btn-tag" onclick="app.bulkApplyTag('sales')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                         </div>
                     </div>
-                    ${salesList.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No sales recorded yet.</div>
-                    ` : `
-                        <div class="sale-list-wrapper">
-                            <div class="sale-items-list" id="sale-list-scroll-target">
-                                ${rows}
-                            </div>
-                            <div class="sale-list-controls">
-                                <button class="sale-scroll-btn" id="sale-scroll-up" title="Previous">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
-                                </button>
-                                <button class="sale-scroll-btn" id="sale-scroll-down" title="Next">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                                </button>
-                            </div>
+                        <div id="salesListWrapper">
+                            ${listHtml}
                         </div>
-                        <div style="margin-top: 1rem;">
-                           ${this.renderPaginationControls('sales', currentPage, totalPages)}
-                        </div>
-                    `}
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'sales', totalPages, () => this.renderSalesModule(canvas));
+                this.bindPaginationControls(canvas, 'sales', totalPages, () => this.renderSalesModule(canvas, true));
 
-                // Scroll Controls
-                const scrollList = document.getElementById('sale-list-scroll-target');
-                const btnUp = document.getElementById('sale-scroll-up');
-                const btnDown = document.getElementById('sale-scroll-down');
-
-                if (scrollList && btnUp && btnDown) {
-                    const scrollAmount = () => scrollList.clientHeight; // Scroll by one item height
-
-                    btnUp.addEventListener('click', () => {
-                        scrollList.scrollBy({ top: -scrollAmount(), behavior: 'smooth' });
-                    });
-
-                    btnDown.addEventListener('click', () => {
-                        scrollList.scrollBy({ top: scrollAmount(), behavior: 'smooth' });
-                    });
-                }
 
                 // Restore Product Select Interaction
                 const productSelect = document.getElementById('sale-product');
@@ -6034,7 +6231,7 @@ const app = {
                 if (statValues.length >= 2) {
                     statValues[0].textContent = this.formatStatValue(stats.todays_profit || 0);
                     statValues[1].textContent = this.formatStatValue(stats.gross_profit || 0);
-                    if (this.adjustStatFontSizes) this.adjustStatFontSizes(canvas);
+                    // if (this.adjustStatFontSizes) this.adjustStatFontSizes(canvas);
                 }
             }
         } catch (error) {
@@ -6198,10 +6395,12 @@ const app = {
         }
     },
 
-    renderExpensesModule(canvas) {
+    renderExpensesModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([
             this.fetchBranchExpenses(),
@@ -6214,10 +6413,11 @@ const app = {
             const categoryOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
             const items = pagedExpenses.map(expense => {
                 const expenseJson = encodeURIComponent(JSON.stringify(expense));
+                const searchTerm = `${expense.title} ${expense.amount} ${expense.category || ''} ${expense.note || ''}`.toLowerCase();
                 const itemTags = expenseTags.filter(t => t.expense_id === expense.id);
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
-                <div class="item expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}">
+                <div class="item expense-item" data-expense-id="${expense.id}" data-expense="${expenseJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select expenses-checkbox" value="${expense.id}" onchange="app.toggleSelect('expenses', '${expense.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${expense.title}</div>
@@ -6243,84 +6443,99 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-            <div class="page-enter">
+            const listHtml = `
+                <div id="expensesList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    ${expenses.length === 0 ? '<div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>' : items}
+                </div>
+                ${this.renderPaginationControls('expenses', expensesPage, expensesPages)}
+            `;
 
+            if (isPartial) {
+                const wrapper = document.getElementById('expensesListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
 
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 class="card-title">New Expense</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-expense-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
+                // Re-apply search filter
+                const searchInput = document.getElementById('expensesSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#expensesList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4 class="card-title">New Expense</h4>
+                            <button type="button" class="btn-ghost" data-collapse-target="ops-expense-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
+                        </div>
+                        <div id="ops-expense-body">
+                            <div id="ops-expense-message" class="message-box hidden"></div>
+                            <form id="ops-expense-form" class="auth-form" style="max-width: 100%;">
+                                <div class="input-group">
+                                    <label>Title</label>
+                                    <input type="text" id="expense-title" placeholder="e.g. Rent" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Category</label>
+                                    <select id="expense-category" class="input-field" style="display:none;">
+                                        <option value="" disabled selected>Select category</option>
+                                        ${categoryOptions}
+                                        <option value="${quickAddVal}">+ Add & Save New Category</option>
+                                    </select>
+                                    ${this.renderCustomDropdown('expenseCategoryDropdown', [...categories.map(c => ({ value: c, label: c })), { value: quickAddVal, label: '+ Add & Save New Category' }], '', 'Select category', 'app.handleExpenseCategoryChange')}
+                                </div>
+                                <div class="input-group">
+                                    <label>Amount</label>
+                                    <input type="number" id="expense-amount" min="0" step="0.01" placeholder="0.00" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Note</label>
+                                    <input type="text" id="expense-note" placeholder="Optional note">
+                                </div>
+                                <div class="input-group">
+                                    <label>Tag</label>
+                                    <select id="expense-tag" style="display:none;">
+                                        <option value="">-- No Tag --</option>
+                                    </select>
+                                    ${this.renderCustomDropdown('expenseTagDropdown', [
+                    { value: '', label: '-- No Tag --' },
+                    ...branchTags.map(t => ({ value: t.name, label: t.name }))
+                ], '', '-- No Tag --', 'app.handleExpensesTagChange')}
+                                </div>
+                                <button type="submit" class="btn-primary" style="width: auto;">Add Expense</button>
+                            </form>
+                        </div>
                     </div>
-                    <div id="ops-expense-body">
-                        <div id="ops-expense-message" class="message-box hidden"></div>
-                        <form id="ops-expense-form" class="auth-form" style="max-width: 100%;">
-                            <div class="input-group">
-                                <label>Title</label>
-                                <input type="text" id="expense-title" placeholder="e.g. Rent" required>
+
+                    <div class="card">
+                        <div class="card-header" style="padding-bottom:0;">
+                            <h4 class="card-title">Recent Expenses</h4>
+                        </div>
+                        <div class="search-box" style="margin-top: 10px;">
+                            <input type="search" placeholder="🔍 Search expenses..." oninput="app.searchModuleItems(this.value, '#expensesList'); app.toggleClearButton('expensesSearch', 'expensesClearBtn')" id="expensesSearch" autocomplete="off">
+                            <button id="expensesClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('expensesSearch', 'expensesClearBtn', '#expensesList')" title="Clear">Clear</button>
+                        </div>
+                        <div class="bulk-actions">
+                            <div class="bulk-actions-info">
+                                <input type="checkbox" id="selectAll_expenses" onchange="app.toggleSelectAll('expenses')" class="checkbox-select">
+                                <label for="selectAll_expenses">Select All</label>
+                                <span id="expensesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
                             </div>
-                            <div class="input-group">
-                                <label>Category</label>
-                                <select id="expense-category" class="input-field" style="display:none;">
-                                    <option value="" disabled selected>Select category</option>
-                                    ${categoryOptions}
-                                    <option value="${quickAddVal}">+ Add & Save New Category</option>
-                                </select>
-                                ${this.renderCustomDropdown('expenseCategoryDropdown', [...categories.map(c => ({ value: c, label: c })), { value: quickAddVal, label: '+ Add & Save New Category' }], '', 'Select category', 'app.handleExpenseCategoryChange')}
+                            <div class="bulk-actions-buttons">
+                                <button id="btnBulkDeleteExpenses" class="btn-small btn-danger" onclick="app.bulkDelete('expenses')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                                <button id="btnBulkTagExpenses" class="btn-small btn-tag" onclick="app.bulkApplyTag('expenses')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                             </div>
-                            <div class="input-group">
-                                <label>Amount</label>
-                                <input type="number" id="expense-amount" min="0" step="0.01" placeholder="0.00" required>
-                            </div>
-                            <div class="input-group">
-                                <label>Note</label>
-                                <input type="text" id="expense-note" placeholder="Optional note">
-                            </div>
-                            <div class="input-group">
-                                <label>Tag</label>
-                                <select id="expense-tag" style="display:none;">
-                                    <option value="">-- No Tag --</option>
-                                </select>
-                                ${this.renderCustomDropdown('expenseTagDropdown', [
-                { value: '', label: '-- No Tag --' },
-                ...branchTags.map(t => ({ value: t.name, label: t.name }))
-            ], '', '-- No Tag --', 'app.handleExpensesTagChange')}
-                            </div>
-                            <button type="submit" class="btn-primary" style="width: auto;">Add Expense</button>
-                        </form>
+                        </div>
+                        <div id="expensesListWrapper">
+                            ${listHtml}
+                        </div>
                     </div>
                 </div>
-
-                <div class="card">
-                    <div class="card-header" style="padding-bottom:0;">
-                        <h4 class="card-title">Recent Expenses</h4>
-                    </div>
-                    <div class="bulk-actions">
-                        <div class="bulk-actions-info">
-                            <input type="checkbox" id="selectAll_expenses" onchange="app.toggleSelectAll('expenses')" class="checkbox-select">
-                            <label for="selectAll_expenses">Select All</label>
-                            <span id="expensesSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
-                        </div>
-                        <div class="bulk-actions-buttons">
-                            <button id="btnBulkDeleteExpenses" class="btn-small btn-danger" onclick="app.bulkDelete('expenses')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                            <button id="btnBulkTagExpenses" class="btn-small btn-tag" onclick="app.bulkApplyTag('expenses')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
-                        </div>
-                    </div>
-                    ${expenses.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No expenses recorded yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
-                        </div>
-                        ${this.renderPaginationControls('expenses', expensesPage, expensesPages)}
-                    `}
-                </div>
-            </div>
-        `;
+            `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'expenses', expensesPages, () => this.renderExpensesModule(canvas));
+                this.bindPaginationControls(canvas, 'expenses', expensesPages, () => this.renderExpensesModule(canvas, true));
 
                 // ── Expense-category inline quick-add ──
                 const catSelect = document.getElementById('expense-category');
@@ -6590,10 +6805,12 @@ const app = {
         }
     },
 
-    renderIncomeModule(canvas) {
+    renderIncomeModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([
             this.fetchBranchIncome(),
@@ -6606,10 +6823,11 @@ const app = {
             const sourceOptions = sources.map(s => `<option value="${s}">${s}</option>`).join('');
             const items = pagedIncome.map(row => {
                 const rowJson = encodeURIComponent(JSON.stringify(row));
+                const searchTerm = `${row.title} ${row.amount} ${row.source || ''} ${row.note || ''}`.toLowerCase();
                 const itemTags = incomeTags.filter(t => t.income_id === row.id);
                 const tagUnix = itemTags.map(t => `<span class="badge" style="background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid var(--primary);">${t.tag}</span>`).join('');
                 return `
-                    <div class="item income-item" data-income-id="${row.id}" data-income="${rowJson}">
+                    <div class="item income-item" data-income-id="${row.id}" data-income="${rowJson}" data-search-term="${searchTerm}">
                         <input type="checkbox" class="checkbox-select income-checkbox" value="${row.id}" onchange="app.toggleSelect('income', '${row.id}')" style="margin-top: 8px;">
                         <div class="note-preview" style="cursor: pointer;">
                             <div class="item-title">${row.title}</div>
@@ -6635,85 +6853,98 @@ const app = {
                 `;
             }).join('');
 
-            canvas.innerHTML = `
-            <div class="page-enter">
-
-
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 class="card-title">New Income</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-income-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
-                    </div>
-                    <div id="ops-income-body">
-                        <div id="ops-income-message" class="message-box hidden"></div>
-                        <form id="ops-income-form" class="auth-form" style="max-width: 100%;">
-                            <div class="input-group">
-                                <label>Title</label>
-                                <input type="text" id="income-title" placeholder="e.g. Service income" required>
-                            </div>
-                            <div class="input-group">
-                                <label>Source</label>
-                                <select id="income-source" class="input-field" style="display:none;">
-                                    <option value="" disabled selected>Select source</option>
-                                    ${sourceOptions}
-                                    <option value="${quickAddVal}">+ Add & Save New Source</option>
-                                </select>
-                                ${this.renderCustomDropdown('incomeSourceDropdown', [...sources.map(s => ({ value: s, label: s })), { value: quickAddVal, label: '+ Add & Save New Source' }], '', 'Select source', 'app.handleIncomeSourceChange')}
-                            </div>
-                            <div class="input-group">
-                                <label>Amount</label>
-                                <input type="number" id="income-amount" min="0" step="0.01" placeholder="0.00" required>
-                            </div>
-                            <div class="input-group">
-                                <label>Note</label>
-                                <input type="text" id="income-note" placeholder="Optional note">
-                            </div>
-                            <div class="input-group">
-                                <label>Tag</label>
-                                <select id="income-tag" style="display:none;">
-                                    <option value="">-- No Tag --</option>
-                                </select>
-                                ${this.renderCustomDropdown('incomeTagDropdown', [
-                { value: '', label: '-- No Tag --' },
-                ...branchTags.map(t => ({ value: t.name, label: t.name }))
-            ], '', '-- No Tag --', 'app.handleIncomeTagChange')}
-                            </div>
-                            <button type="submit" class="btn-primary" style="width: auto;">Add Income</button>
-                        </form>
-                    </div>
+            const listHtml = `
+                <div id="incomeList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    ${incomeEntries.length === 0 ? '<div class="text-muted" style="padding: 1rem;">No income records yet.</div>' : items}
                 </div>
-
-                <div class="card">
-                    <div class="card-header" style="padding-bottom:0;">
-                        <h4 class="card-title">Recent Income</h4>
-                    </div>
-                    <div class="bulk-actions">
-                        <div class="bulk-actions-info">
-                            <input type="checkbox" id="selectAll_income" onchange="app.toggleSelectAll('income')" class="checkbox-select">
-                            <label for="selectAll_income">Select All</label>
-                            <span id="incomeSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
-                        </div>
-                        <div class="bulk-actions-buttons">
-                            <button id="btnBulkDeleteIncome" class="btn-small btn-danger" onclick="app.bulkDelete('income')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
-                            <button id="btnBulkTagIncome" class="btn-small btn-tag" onclick="app.bulkApplyTag('income')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
-                        </div>
-                    </div>
-                    ${incomeEntries.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No income records yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
-                        </div>
-                        ${this.renderPaginationControls('income', incomePage, incomePages)}
-                    `}
-                </div>
-                </div>
-            </div>
+                ${this.renderPaginationControls('income', incomePage, incomePages)}
             `;
 
+            if (isPartial) {
+                const wrapper = document.getElementById('incomeListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('incomeSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#incomeList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4 class="card-title">New Income</h4>
+                            <button type="button" class="btn-ghost" data-collapse-target="ops-income-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
+                        </div>
+                        <div id="ops-income-body">
+                            <div id="ops-income-message" class="message-box hidden"></div>
+                            <form id="ops-income-form" class="auth-form" style="max-width: 100%;">
+                                <div class="input-group">
+                                    <label>Title</label>
+                                    <input type="text" id="income-title" placeholder="e.g. Service income" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Source</label>
+                                    <select id="income-source" class="input-field" style="display:none;">
+                                        <option value="" disabled selected>Select source</option>
+                                        ${sourceOptions}
+                                        <option value="${quickAddVal}">+ Add & Save New Source</option>
+                                    </select>
+                                    ${this.renderCustomDropdown('incomeSourceDropdown', [...sources.map(s => ({ value: s, label: s })), { value: quickAddVal, label: '+ Add & Save New Source' }], '', 'Select source', 'app.handleIncomeSourceChange')}
+                                </div>
+                                <div class="input-group">
+                                    <label>Amount</label>
+                                    <input type="number" id="income-amount" min="0" step="0.01" placeholder="0.00" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Note</label>
+                                    <input type="text" id="income-note" placeholder="Optional note">
+                                </div>
+                                <div class="input-group">
+                                    <label>Tag</label>
+                                    <select id="income-tag" style="display:none;">
+                                        <option value="">-- No Tag --</option>
+                                    </select>
+                                    ${this.renderCustomDropdown('incomeTagDropdown', [
+                    { value: '', label: '-- No Tag --' },
+                    ...branchTags.map(t => ({ value: t.name, label: t.name }))
+                ], '', '-- No Tag --', 'app.handleIncomeTagChange')}
+                                </div>
+                                <button type="submit" class="btn-primary" style="width: auto;">Add Income</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header" style="padding-bottom:0;">
+                            <h4 class="card-title">Recent Income</h4>
+                        </div>
+                        <div class="search-box" style="margin-top: 10px;">
+                            <input type="search" placeholder="🔍 Search income..." oninput="app.searchModuleItems(this.value, '#incomeList'); app.toggleClearButton('incomeSearch', 'incomeClearBtn')" id="incomeSearch" autocomplete="off">
+                            <button id="incomeClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('incomeSearch', 'incomeClearBtn', '#incomeList')" title="Clear">Clear</button>
+                        </div>
+                        <div class="bulk-actions">
+                            <div class="bulk-actions-info">
+                                <input type="checkbox" id="selectAll_income" onchange="app.toggleSelectAll('income')" class="checkbox-select">
+                                <label for="selectAll_income">Select All</label>
+                                <span id="incomeSelectedCount" style="color: #666; font-size: 12px;">0 selected</span>
+                            </div>
+                            <div class="bulk-actions-buttons">
+                                <button id="btnBulkDeleteIncome" class="btn-small btn-danger" onclick="app.bulkDelete('income')" disabled="" title="🗑️ Delete Selected">🗑️ Delete Selected</button>
+                                <button id="btnBulkTagIncome" class="btn-small btn-tag" onclick="app.bulkApplyTag('income')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
+                            </div>
+                        </div>
+                        <div id="incomeListWrapper">
+                            ${listHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+            }
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'income', incomePages, () => this.renderIncomeModule(canvas));
+                this.bindPaginationControls(canvas, 'income', incomePages, () => this.renderIncomeModule(canvas, true));
 
                 // ── Income-source inline quick-add ──
                 const srcSelect = document.getElementById('income-source');
@@ -6970,10 +7201,12 @@ const app = {
         });
     },
 
-    renderNotesModule(canvas) {
+    renderNotesModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([
             this.fetchBranchNotes(),
@@ -6986,11 +7219,12 @@ const app = {
             const noteCards = pagedNotes.map(note => {
                 const dateStr = new Date(note.createdAt).toLocaleString();
                 const noteJson = encodeURIComponent(JSON.stringify(note));
+                const searchTerm = `${note.title || ''} ${note.details || ''} `.toLowerCase();
                 const itemTags = noteTags.filter(t => t.note_id === note.id);
-                const tagUnix = itemTags.map(t => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22);border:1px solid rgb(78, 205, 196);color:#1a1a1a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;">${t.tag}</span>`).join('');
+                const tagUnix = itemTags.map(t => `<span class="tag-badge" style="background-color:rgba(78, 205, 196, 0.22); border:1px solid rgb(78, 205, 196); color:#1a1a1a; padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center;">${t.tag}</span>`).join('');
 
                 return `
-                <div class="item" data-note-id="${note.id}" data-note="${noteJson}">
+                <div class="item" data-note-id="${note.id}" data-note="${noteJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select notes-checkbox" value="${note.id}" onchange="app.toggleSelect('notes', '${note.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;" title="Open note">
                         <div class="item-title" style="margin-bottom: 4px;">${note.title || (note.details ? (note.details.split('\n')[0].substring(0, 50) + (note.details.length > 50 ? '...' : '')) : 'Untitled Note')}</div>
@@ -7010,11 +7244,32 @@ const app = {
                     </div>
                     ${tagUnix ? `<div class="tags-scroll" style="margin-top: 6px; touch-action: pan-x;">${tagUnix}</div>` : ''}
                 </div>
-                `;
+            `;
             }).join('');
 
-            canvas.innerHTML = `
-            <div class="page-enter">
+            const listHtml = `
+                    ${notes.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
+                    ` : `
+                        <div class="notes-list-container" style="display: flex; flex-direction: column; gap: 1rem;">
+                            ${noteCards}
+                        </div>
+                        ${this.renderPaginationControls('notes', notesPage, notesPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('notesListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('notesSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '.notes-list-container');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -7039,9 +7294,9 @@ const app = {
                                     <option value="">-- No Tag --</option>
                                 </select>
                                 ${this.renderCustomDropdown('noteTagDropdown', [
-                { value: '', label: '-- No Tag --' },
-                ...branchTags.map(t => ({ value: t.name, label: t.name }))
-            ], '', '-- No Tag --', 'app.handleNotesTagChange')}
+                    { value: '', label: '-- No Tag --' },
+                    ...branchTags.map(t => ({ value: t.name, label: t.name }))
+                ], '', '-- No Tag --', 'app.handleNotesTagChange')}
                             </div>
                             <button type="submit" class="btn-primary" style="width: auto;">Add Note</button>
                         </form>
@@ -7051,6 +7306,10 @@ const app = {
                 <div class="card">
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Notes</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search notes..." oninput="app.searchModuleItems(this.value, '.notes-list-container'); app.toggleClearButton('notesSearch', 'notesClearBtn')" id="notesSearch" autocomplete="off">
+                        <button id="notesClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('notesSearch', 'notesClearBtn', '.notes-list-container')" title="Clear">Clear</button>
                     </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
@@ -7063,21 +7322,17 @@ const app = {
                             <button id="btnBulkTagNotes" class="btn-small btn-tag" onclick="app.bulkApplyTag('notes')" disabled="" title="📌 Apply Tag">📌 Apply Tag</button>
                         </div>
                     </div>
-                    ${notes.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No notes yet.</div>
-                    ` : `
-                        <div class="notes-list-container" style="display: flex; flex-direction: column; gap: 1rem; padding: 1rem;">
-                            ${noteCards}
+                        <div id="notesListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('notes', notesPage, notesPages)}
-                    `}
+                    </div>
                 </div>
-            </div>
             `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'notes', notesPages, () => this.renderNotesModule(canvas));
+                this.bindPaginationControls(canvas, 'notes', notesPages, () => this.renderNotesModule(canvas, true));
 
                 // Form Handler
                 const form = document.getElementById('ops-notes-form');
@@ -7183,7 +7438,7 @@ const app = {
 
         // Initial State (View Mode)
         const modalHTML = `
-            <div id="note-preview-modal" class="modal-overlay">
+    <div id="note-preview-modal" class="modal-overlay">
         <div class="modal-content" style="max-width: 900px; width: 90%;">
             <!-- Header -->
             <div class="card-header" style="display:flex; justify-content:space-between; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem;">
@@ -7227,7 +7482,7 @@ const app = {
             </div>
         </div>
             </div>
-            `;
+    `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('note-preview-modal');
@@ -7345,7 +7600,7 @@ const app = {
         if (existing) existing.remove();
 
         const modalHTML = `
-            <div id="edit-note-modal" class="modal-overlay">
+    <div id="edit-note-modal" class="modal-overlay">
         <div class="modal-content" style="max-width: 700px; width: 90%;">
             <div class="card-header">
                 <h3 class="card-title">Edit Note</h3>
@@ -7369,7 +7624,7 @@ const app = {
             </form>
         </div>
             </div>
-            `;
+    `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('edit-note-modal');
@@ -7409,17 +7664,20 @@ const app = {
         });
     },
 
-    renderCustomersModule(canvas) {
+    renderCustomersModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         this.fetchBranchCustomers().then((customers) => {
             const { items: pagedCustomers, page: customersPage, totalPages: customersPages } = this.paginateList(customers, 'customers', 5);
             const items = pagedCustomers.map(customer => {
                 const customerJson = encodeURIComponent(JSON.stringify(customer));
+                const searchTerm = `${customer.name} ${customer.phone || ''} ${customer.email || ''} `.toLowerCase();
                 return `
-                <div class="item customer-item" data-customer-id="${customer.id}" data-customer="${customerJson}">
+                <div class="item customer-item" data-customer-id="${customer.id}" data-customer="${customerJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select customers-checkbox" value="${customer.id}" onchange="app.toggleSelect('customers', '${customer.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${customer.name}</div>
@@ -7440,8 +7698,29 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
+            const listHtml = `
+                    ${customers.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No customers added yet.</div>
+                    ` : `
+                        <div id="customersList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${items}
+                        </div>
+                        ${this.renderPaginationControls('customers', customersPage, customersPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('customersListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('customerSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#customersList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -7477,6 +7756,10 @@ const app = {
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Customer List</h4>
                     </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search customers..." oninput="app.searchModuleItems(this.value, '#customersList'); app.toggleClearButton('customerSearch', 'customerClearBtn')" id="customerSearch" autocomplete="off">
+                        <button id="customerClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('customerSearch', 'customerClearBtn', '#customersList')" title="Clear">Clear</button>
+                    </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
                             <input type="checkbox" id="selectAll_customers" onchange="app.toggleSelectAll('customers')" class="checkbox-select">
@@ -7487,21 +7770,17 @@ const app = {
                             <button id="btnBulkDeleteCustomers" class="btn-small btn-danger" onclick="app.bulkDelete('customers')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
                         </div>
                     </div>
-                    ${customers.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No customers added yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
+                        <div id="customersListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('customers', customersPage, customersPages)}
-                    `}
+                    </div>
                 </div>
-            </div>
             `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'customers', customersPages, () => this.renderCustomersModule(canvas));
+                this.bindPaginationControls(canvas, 'customers', customersPages, () => this.renderCustomersModule(canvas, true));
                 const form = document.getElementById('ops-customers-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -7580,39 +7859,39 @@ const app = {
         if (existing) existing.remove();
 
         const modalHTML = `
-            <div id="edit-customer-modal" class="modal-overlay">
-                <div class="modal-content" style="max-width: 500px; width: 90%;">
-                    <div class="card-header">
-                        <h3 class="card-title">Edit Customer</h3>
-                        <button class="btn-ghost close-modal-btn">&times;</button>
-                    </div>
-                    <div id="edit-customer-message" class="message-box hidden"></div>
-                    <form id="edit-customer-form" style="margin-top: 1rem;">
-                        <input type="hidden" id="edit-customer-id" value="${customer.id}">
-                        <div class="input-group">
-                            <label>Name</label>
-                            <input type="text" id="edit-customer-name" value="${customer.name}" required>
-                        </div>
-                        <div class="input-group">
-                            <label>Phone</label>
-                            <input type="text" id="edit-customer-phone" value="${customer.phone || ''}">
-                        </div>
-                        <div class="input-group">
-                            <label>Email</label>
-                            <input type="email" id="edit-customer-email" value="${customer.email || ''}">
-                        </div>
-                        <div class="input-group">
-                            <label>Address</label>
-                            <input type="text" id="edit-customer-address" value="${customer.address || ''}">
-                        </div>
-                        <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                            <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
-                            <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
-                        </div>
-                    </form>
-                </div>
+    <div id="edit-customer-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px; width: 90%;">
+            <div class="card-header">
+                <h3 class="card-title">Edit Customer</h3>
+                <button class="btn-ghost close-modal-btn">&times;</button>
             </div>
-        `;
+            <div id="edit-customer-message" class="message-box hidden"></div>
+            <form id="edit-customer-form" style="margin-top: 1rem;">
+                <input type="hidden" id="edit-customer-id" value="${customer.id}">
+                    <div class="input-group">
+                        <label>Name</label>
+                        <input type="text" id="edit-customer-name" value="${customer.name}" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Phone</label>
+                        <input type="text" id="edit-customer-phone" value="${customer.phone || ''}">
+                    </div>
+                    <div class="input-group">
+                        <label>Email</label>
+                        <input type="email" id="edit-customer-email" value="${customer.email || ''}">
+                    </div>
+                    <div class="input-group">
+                        <label>Address</label>
+                        <input type="text" id="edit-customer-address" value="${customer.address || ''}">
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="button" class="btn-ghost close-modal-btn" style="flex:1">Cancel</button>
+                        <button type="submit" class="btn-primary" style="flex:1">Save Changes</button>
+                    </div>
+            </form>
+        </div>
+            </div>
+    `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('edit-customer-modal');
@@ -7654,18 +7933,21 @@ const app = {
         });
     },
 
-    renderInvoicesModule(canvas) {
+    renderInvoicesModule(canvas, isPartial = false) {
         // Initialize selection state
-        this.state.activeSelection = new Set();
-        canvas.innerHTML = this.getLoaderHTML();
+        if (!isPartial) {
+            this.state.activeSelection = new Set();
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         Promise.all([this.fetchBranchInvoices(), this.fetchBranchCustomers()]).then(([invoices, customers]) => {
             const customerOptions = customers.map(cust => `<option value="${cust.id}">${cust.name}</option>`).join('');
             const { items: pagedInvoices, page: invoicesPage, totalPages: invoicesPages } = this.paginateList(invoices, 'invoices', 5);
             const items = pagedInvoices.map(invoice => {
                 const invoiceJson = encodeURIComponent(JSON.stringify(invoice));
+                const searchTerm = `${invoice.invoiceNumber || ''} ${invoice.customerName || ''} ${invoice.amount} ${invoice.status || ''} `.toLowerCase();
                 return `
-                <div class="item invoice-item" data-invoice-id="${invoice.id}" data-invoice="${invoiceJson}">
+                <div class="item invoice-item" data-invoice-id="${invoice.id}" data-invoice="${invoiceJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select invoices-checkbox" value="${invoice.id}" onchange="app.toggleSelect('invoices', '${invoice.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${invoice.customerName || 'Walk-in'} - ${this.formatCurrency(invoice.amount || 0)}</div>
@@ -7686,8 +7968,29 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
+            const listHtml = `
+                    ${invoices.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No invoices generated yet.</div>
+                    ` : `
+                        <div id="invoicesList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${items}
+                        </div>
+                        ${this.renderPaginationControls('invoices', invoicesPage, invoicesPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('invoicesListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('invoicesSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#invoicesList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -7736,7 +8039,11 @@ const app = {
                     <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Recent Invoices</h4>
                     </div>
-                    <div class="bulk-actions">
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search invoices..." oninput="app.searchModuleItems(this.value, '#invoicesList'); app.toggleClearButton('invoicesSearch', 'invoicesClearBtn')" id="invoicesSearch" autocomplete="off">
+                        <button id="invoicesClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('invoicesSearch', 'invoicesClearBtn', '#invoicesList')" title="Clear">Clear</button>
+                    </div>
+                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
                             <input type="checkbox" id="selectAll_invoices" onchange="app.toggleSelectAll('invoices')" class="checkbox-select">
                             <label for="selectAll_invoices">Select All</label>
@@ -7746,21 +8053,17 @@ const app = {
                             <button id="btnBulkDeleteInvoices" class="btn-small btn-danger" onclick="app.bulkDelete('invoices')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
                         </div>
                     </div>
-                    ${invoices.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No invoices/receipts yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
+                        <div id="invoicesListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('invoices', invoicesPage, invoicesPages)}
-                    `}
+                    </div>
                 </div>
-            </div>
             `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'invoices', invoicesPages, () => this.renderInvoicesModule(canvas));
+                this.bindPaginationControls(canvas, 'invoices', invoicesPages, () => this.renderInvoicesModule(canvas, true));
                 const form = document.getElementById('ops-invoices-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -7853,40 +8156,40 @@ const app = {
 
         const customer = customers.find(c => c.id === invoice.customerId);
         const customerDetails = customer ? `
-            <p><strong>Customer:</strong> ${customer.name}</p>
-            ${customer.email ? `<p><strong>Email:</strong> ${customer.email}</p>` : ''}
+    < p > <strong>Customer:</strong> ${customer.name}</p >
+        ${customer.email ? `<p><strong>Email:</strong> ${customer.email}</p>` : ''}
             ${customer.phone ? `<p><strong>Phone:</strong> ${customer.phone}</p>` : ''}
             ${customer.address ? `<p><strong>Address:</strong> ${customer.address}</p>` : ''}
-        ` : '<p><strong>Customer:</strong> Walk-in</p>';
+` : '<p><strong>Customer:</strong> Walk-in</p>';
 
         const modalHTML = `
-            <div id="invoice-preview-modal" class="modal-overlay">
-                <div class="modal-content" style="max-width: 700px; width: 90%;">
-                    <div class="card-header">
-                        <h3 class="card-title">Invoice #${invoice.invoiceNumber}</h3>
-                        <button class="btn-ghost close-modal-btn">&times;</button>
+    <div id="invoice-preview-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 700px; width: 90%;">
+            <div class="card-header">
+                <h3 class="card-title">Invoice #${invoice.invoiceNumber}</h3>
+                <button class="btn-ghost close-modal-btn">&times;</button>
+            </div>
+            <div style="padding: 1.25rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                    <div>
+                        <p><strong>Date:</strong> ${new Date(invoice.createdAt).toLocaleDateString()}</p>
+                        <p><strong>Due Date:</strong> ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}</p>
                     </div>
-                    <div style="padding: 1.25rem;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
-                            <div>
-                                <p><strong>Date:</strong> ${new Date(invoice.createdAt).toLocaleDateString()}</p>
-                                <p><strong>Due Date:</strong> ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}</p>
-                            </div>
-                            <div>
-                                <p><strong>Status:</strong> ${invoice.status}</p>
-                                <p><strong>Amount:</strong> ${this.formatCurrency(invoice.amount || 0)}</p>
-                            </div>
-                        </div>
-                        <div style="margin-bottom: 1rem;">
-                            ${customerDetails}
-                        </div>
-                        <div style="margin-top: 1.5rem; text-align: right;">
-                            <button class="btn-primary close-modal-btn">Close</button>
-                        </div>
+                    <div>
+                        <p><strong>Status:</strong> ${invoice.status}</p>
+                        <p><strong>Amount:</strong> ${this.formatCurrency(invoice.amount || 0)}</p>
                     </div>
                 </div>
+                <div style="margin-bottom: 1rem;">
+                    ${customerDetails}
+                </div>
+                <div style="margin-top: 1.5rem; text-align: right;">
+                    <button class="btn-primary close-modal-btn">Close</button>
+                </div>
             </div>
-        `;
+        </div>
+            </div>
+    `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('invoice-preview-modal');
@@ -7896,13 +8199,15 @@ const app = {
         modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
     },
 
-    renderReportsModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    renderReportsModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         this.fetchBranchReports().then((reports) => {
             const { items: pagedReports, page: reportsPage, totalPages: reportsPages } = this.paginateList(reports, 'reports', 5);
             const rows = pagedReports.map(report => `
-<tr>
+    < tr >
                     <td data-label="Date">${new Date(report.createdAt).toLocaleString()}</td>
                     <td data-label="Type">${report.type}</td>
                     <td data-label="Period">${report.period}</td>
@@ -7910,51 +8215,7 @@ const app = {
                 </tr>
     `).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
-
-
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 class="card-title">New Report Request</h4>
-                        <button type="button" class="btn-ghost" data-collapse-target="ops-reports-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
-                    </div>
-                    <div id="ops-reports-body">
-                        <div id="ops-reports-message" class="message-box hidden"></div>
-                        <form id="ops-reports-form" class="auth-form" style="max-width: 100%;">
-                            <div class="input-group">
-                                <label>Report Type</label>
-                                <select id="report-type" class="input-field" style="display:none;">
-                                    <option value="sales">Sales</option>
-                                    <option value="inventory">Inventory</option>
-                                    <option value="expenses">Expenses</option>
-                                    <option value="income">Income</option>
-                                </select>
-                                ${this.renderCustomDropdown('reportTypeDropdown', [{ value: 'sales', label: 'Sales' }, { value: 'inventory', label: 'Inventory' }, { value: 'expenses', label: 'Expenses' }, { value: 'income', label: 'Income' }], 'sales', 'Sales', 'app.handleReportTypeChange')}
-                            </div>
-                            <div class="input-group">
-                                <label>Period</label>
-                                <select id="report-period" class="input-field" style="display:none;">
-                                    <option value="today">Today</option>
-                                    <option value="week">This Week</option>
-                                    <option value="month" selected>This Month</option>
-                                    <option value="quarter">This Quarter</option>
-                                </select>
-                                ${this.renderCustomDropdown('reportPeriodDropdown', [{ value: 'today', label: 'Today' }, { value: 'week', label: 'This Week' }, { value: 'month', label: 'This Month' }, { value: 'quarter', label: 'This Quarter' }], 'month', 'This Month', 'app.handleReportPeriodChange')}
-                            </div>
-                            <div class="input-group">
-                                <label>Note</label>
-                                <input type="text" id="report-note" placeholder="Optional note">
-                            </div>
-                            <button type="submit" class="btn-primary" style="width: auto;">Save Report</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h4 class="card-title">Recent Reports</h4>
-                    </div>
+            const listHtml = `
                     ${reports.length === 0 ? `
                         <div class="text-muted" style="padding: 1rem;">No reports saved yet.</div>
                     ` : `
@@ -7975,13 +8236,74 @@ const app = {
                         </div>
                         ${this.renderPaginationControls('reports', reportsPage, reportsPages)}
                     `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('reportsListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('reportsSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#reportsList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 class="card-title">New Report</h4>
+                        <button type="button" class="btn-ghost" data-collapse-target="ops-reports-body" data-collapse-open-text="Create" data-collapse-close-text="Close">Close</button>
+                    </div>
+                    <div id="ops-reports-body">
+                        <div id="ops-reports-message" class="message-box hidden"></div>
+                        <form id="ops-reports-form" class="auth-form" style="max-width: 100%;">
+                            <div class="input-group">
+                                <label>Report Type</label>
+                                <select id="report-type" class="input-field" style="display:none;">
+                                    <option value="sales" selected>Sales Report</option>
+                                    <option value="inventory">Inventory Report</option>
+                                    <option value="financial">Financial Summary</option>
+                                </select>
+                                ${this.renderCustomDropdown('reportTypeDropdown', [{ value: 'sales', label: 'Sales Report' }, { value: 'inventory', label: 'Inventory Report' }, { value: 'financial', label: 'Financial Summary' }], 'sales', 'Sales Report', 'app.handleReportTypeChange')}
+                            </div>
+                            <div class="input-group">
+                                <label>Period</label>
+                                <select id="report-period" class="input-field" style="display:none;">
+                                    <option value="daily" selected>Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                                ${this.renderCustomDropdown('reportPeriodDropdown', [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }, { value: 'monthly', label: 'Monthly' }], 'daily', 'Daily', 'app.handleReportPeriodChange')}
+                            </div>
+                            <div class="input-group">
+                                <label>Note</label>
+                                <input type="text" id="report-note" placeholder="Optional note">
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: auto;">Save Report</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" style="padding-bottom:0;">
+                        <h4 class="card-title">Recent Reports</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search reports..." oninput="app.searchModuleItems(this.value, '#reportsList'); app.toggleClearButton('reportsSearch', 'reportsClearBtn')" id="reportsSearch" autocomplete="off">
+                        <button id="reportsClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('reportsSearch', 'reportsClearBtn', '#reportsList')" title="Clear">Clear</button>
+                    </div>
+                    <div id="reportsListWrapper">
+                        ${listHtml}
+                    </div>
                 </div>
             </div>
-            `;
+    `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'reports', reportsPages, () => this.renderReportsModule(canvas));
+                this.bindPaginationControls(canvas, 'reports', reportsPages, () => this.renderReportsModule(canvas, true));
                 const form = document.getElementById('ops-reports-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -8016,20 +8338,23 @@ const app = {
         });
     },
 
-    renderLoansModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    renderLoansModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         this.fetchBranchLoans().then((loans) => {
             const { items: pagedLoans, page: loansPage, totalPages: loansPages } = this.paginateList(loans, 'loans', 5);
             const items = pagedLoans.map(loan => {
                 const loanJson = encodeURIComponent(JSON.stringify(loan));
+                const searchTerm = `${loan.borrower} ${loan.amount} ${loan.status} ${loan.dueDate || ''} `.toLowerCase();
                 return `
-                <div class="item loan-item" data-loan-id="${loan.id}" data-loan="${loanJson}">
+                <div class="item loan-item" data-loan-id="${loan.id}" data-loan="${loanJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select loans-checkbox" value="${loan.id}" onchange="app.toggleSelect('loans', '${loan.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${loan.borrower} - ${this.formatCurrency(loan.amount || 0)}</div>
                         <div class="item-subtitle">
-                           Due: ${loan.dueDate || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${loan.status}</span> · ${new Date(loan.createdAt).toLocaleDateString()}
+                            Due: ${loan.dueDate || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${loan.status}</span> · ${new Date(loan.createdAt).toLocaleDateString()}
                         </div>
                     </div>
                     <div class="note-actions">
@@ -8045,8 +8370,29 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
+            const listHtml = `
+                    ${loans.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No loans recorded yet.</div>
+                    ` : `
+                        <div id="loansList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${items}
+                        </div>
+                        ${this.renderPaginationControls('loans', loansPage, loansPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('loansListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('loansSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#loansList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -8088,6 +8434,13 @@ const app = {
                 </div>
 
                 <div class="card">
+                    <div class="card-header" style="padding-bottom:0;">
+                        <h4 class="card-title">Loans List</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search loans..." oninput="app.searchModuleItems(this.value, '#loansList'); app.toggleClearButton('loansSearch', 'loansClearBtn')" id="loansSearch" autocomplete="off">
+                        <button id="loansClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('loansSearch', 'loansClearBtn', '#loansList')" title="Clear">Clear</button>
+                    </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
                             <input type="checkbox" id="selectAll_loans" onchange="app.toggleSelectAll('loans')" class="checkbox-select">
@@ -8098,21 +8451,18 @@ const app = {
                             <button id="btnBulkDeleteLoans" class="btn-small btn-danger" onclick="app.bulkDelete('loans')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
                         </div>
                     </div>
-                    ${loans.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No loans recorded yet.</div>
-                    ` : `
-                       <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
+                        <div id="loansListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('loans', loansPage, loansPages)}
-                    `}
+                    </div>
                 </div>
             </div>
-            `;
+    `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'loans', loansPages, () => this.renderLoansModule(canvas));
+                this.bindPaginationControls(canvas, 'loans', loansPages, () => this.renderLoansModule(canvas, true));
                 const form = document.getElementById('ops-loans-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -8158,20 +8508,23 @@ const app = {
         });
     },
 
-    renderAssetsModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    renderAssetsModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         this.fetchBranchAssets().then((assets) => {
             const { items: pagedAssets, page: assetsPage, totalPages: assetsPages } = this.paginateList(assets, 'assets', 5);
             const items = pagedAssets.map(asset => {
                 const assetJson = encodeURIComponent(JSON.stringify(asset));
+                const searchTerm = `${asset.name} ${asset.value} ${asset.condition || ''} `.toLowerCase();
                 return `
-                <div class="item asset-item" data-asset-id="${asset.id}" data-asset="${assetJson}">
+                <div class="item asset-item" data-asset-id="${asset.id}" data-asset="${assetJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select assets-checkbox" value="${asset.id}" onchange="app.toggleSelect('assets', '${asset.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${asset.name} - ${this.formatCurrency(asset.value || 0)}</div>
                         <div class="item-subtitle">
-                           Purchased: ${asset.purchaseDate || 'N/A'} · Condition: ${asset.condition || 'N/A'}
+                            Purchased: ${asset.purchaseDate || 'N/A'} · Condition: ${asset.condition || 'N/A'}
                         </div>
                     </div>
                     <div class="note-actions">
@@ -8187,8 +8540,29 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
+            const listHtml = `
+                    ${assets.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No assets recorded yet.</div>
+                    ` : `
+                        <div id="assetsList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${items}
+                        </div>
+                        ${this.renderPaginationControls('assets', assetsPage, assetsPages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('assetsListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('assetsSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#assetsList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -8221,8 +8595,12 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" style="padding-bottom:0;">
                         <h4 class="card-title">Assets List</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search assets..." oninput="app.searchModuleItems(this.value, '#assetsList'); app.toggleClearButton('assetsSearch', 'assetsClearBtn')" id="assetsSearch" autocomplete="off">
+                        <button id="assetsClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('assetsSearch', 'assetsClearBtn', '#assetsList')" title="Clear">Clear</button>
                     </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
@@ -8234,21 +8612,18 @@ const app = {
                             <button id="btnBulkDeleteAssets" class="btn-small btn-danger" onclick="app.bulkDelete('assets')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
                         </div>
                     </div>
-                    ${assets.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No assets recorded yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
+                        <div id="assetsListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('assets', assetsPage, assetsPages)}
-                    `}
+                    </div>
                 </div>
             </div>
-            `;
+    `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'assets', assetsPages, () => this.renderAssetsModule(canvas));
+                this.bindPaginationControls(canvas, 'assets', assetsPages, () => this.renderAssetsModule(canvas, true));
                 const form = document.getElementById('ops-assets-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -8292,20 +8667,23 @@ const app = {
         });
     },
 
-    renderMaintenanceModule(canvas) {
-        canvas.innerHTML = this.getLoaderHTML();
+    renderMaintenanceModule(canvas, isPartial = false) {
+        if (!isPartial) {
+            canvas.innerHTML = this.getLoaderHTML();
+        }
 
         this.fetchBranchMaintenance().then((maintenance) => {
             const { items: pagedMaintenance, page: maintenancePage, totalPages: maintenancePages } = this.paginateList(maintenance, 'maintenance', 5);
             const items = pagedMaintenance.map(entry => {
                 const entryJson = encodeURIComponent(JSON.stringify(entry));
+                const searchTerm = `${entry.title} ${entry.asset} ${entry.status} `.toLowerCase(); // Adapted for maintenance
                 return `
-                <div class="item maintenance-item" data-maintenance-id="${entry.id}" data-maintenance="${entryJson}">
+                <div class="item maintenance-item" data-maintenance-id="${entry.id}" data-maintenance="${entryJson}" data-search-term="${searchTerm}">
                     <input type="checkbox" class="checkbox-select maintenance-checkbox" value="${entry.id}" onchange="app.toggleSelect('maintenance', '${entry.id}')" style="margin-top: 8px;">
                     <div class="note-preview" style="cursor: pointer;">
                         <div class="item-title">${entry.title} - ${this.formatCurrency(entry.cost || 0)}</div>
                         <div class="item-subtitle">
-                           Asset: ${entry.asset || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${entry.status}</span> · ${new Date(entry.createdAt).toLocaleDateString()}
+                            Asset: ${entry.asset || 'N/A'} · Status: <span class="badge" style="background:var(--primary-light); color:var(--primary); font-size:10px;">${entry.status}</span> · ${new Date(entry.createdAt).toLocaleDateString()}
                         </div>
                     </div>
                     <div class="note-actions">
@@ -8321,8 +8699,29 @@ const app = {
             `;
             }).join('');
 
-            canvas.innerHTML = `
-<div class="page-enter">
+            const listHtml = `
+                    ${maintenance.length === 0 ? `
+                        <div class="text-muted" style="padding: 1rem;">No maintenance records recorded yet.</div>
+                    ` : `
+                        <div id="maintenanceList" class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${items}
+                        </div>
+                        ${this.renderPaginationControls('maintenance', maintenancePage, maintenancePages)}
+                    `}
+            `;
+
+            if (isPartial) {
+                const wrapper = document.getElementById('maintenanceListWrapper');
+                if (wrapper) wrapper.innerHTML = listHtml;
+
+                // Re-apply search filter
+                const searchInput = document.getElementById('maintenanceSearch');
+                if (searchInput && searchInput.value) {
+                    this.searchModuleItems(searchInput.value, '#maintenanceList');
+                }
+            } else {
+                canvas.innerHTML = `
+                <div class="page-enter">
 
 
                 <div class="card" style="margin-bottom: 1.5rem;">
@@ -8360,8 +8759,12 @@ const app = {
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
-                        <h4 class="card-title">Recent Maintenance</h4>
+                    <div class="card-header" style="padding-bottom:0;">
+                        <h4 class="card-title">Maintenance List</h4>
+                    </div>
+                    <div class="search-box" style="margin-top: 10px;">
+                        <input type="search" placeholder="🔍 Search maintenance..." oninput="app.searchModuleItems(this.value, '#maintenanceList'); app.toggleClearButton('maintenanceSearch', 'maintenanceClearBtn')" id="maintenanceSearch" autocomplete="off">
+                        <button id="maintenanceClearBtn" class="clear-btn btn-small btn-secondary hint hidden" onclick="app.clearModuleSearch('maintenanceSearch', 'maintenanceClearBtn', '#maintenanceList')" title="Clear">Clear</button>
                     </div>
                     <div class="bulk-actions">
                         <div class="bulk-actions-info">
@@ -8373,21 +8776,18 @@ const app = {
                             <button id="btnBulkDeleteMaintenance" class="btn-small btn-danger" onclick="app.bulkDelete('maintenance')" disabled="" title="🗑️ Delete Selected">🗑️ Delete</button>
                         </div>
                     </div>
-                    ${maintenance.length === 0 ? `
-                        <div class="text-muted" style="padding: 1rem;">No maintenance tasks yet.</div>
-                    ` : `
-                        <div class="items-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;">
-                            ${items}
+                        <div id="maintenanceListWrapper">
+                            ${listHtml}
                         </div>
-                        ${this.renderPaginationControls('maintenance', maintenancePage, maintenancePages)}
-                    `}
+                    </div>
                 </div>
             </div>
-            `;
+    `;
+            }
 
             setTimeout(() => {
                 this.bindCollapseControls(canvas);
-                this.bindPaginationControls(canvas, 'maintenance', maintenancePages, () => this.renderMaintenanceModule(canvas));
+                this.bindPaginationControls(canvas, 'maintenance', maintenancePages, () => this.renderMaintenanceModule(canvas, true));
                 const form = document.getElementById('ops-maintenance-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -8538,52 +8938,52 @@ const app = {
 
         // 1. Appearance (Theme)
         content += `
-        <div class="settings-section">
-            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Appearance</h4>
-            <div class="settings-row">
-                <div>
-                    <div style="font-weight: 500;">Theme</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
-                </div>
-                <div class="theme-buttons">
-                    <label class="theme-switch" title="Toggle theme">
-                        <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
-                            <span class="theme-slider"></span>
-                    </label>
+            <div class="settings-section">
+                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Appearance</h4>
+                <div class="settings-row">
+                    <div>
+                        <div style="font-weight: 500;">Theme</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
+                    </div>
+                    <div class="theme-buttons">
+                        <label class="theme-switch" title="Toggle theme">
+                            <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
+                                <span class="theme-slider"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
-        </div>
-        `;
+            `;
 
         // 2. Regional (Currency)
         content += `
-        <div class="settings-section">
-            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Regional Settings</h4>
-            <div class="settings-row">
-                <div>
-                    <div style="font-weight: 500;">Currency</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Default currency for transactions</div>
-                </div>
-                <select id="settings-currency" class="input-field" style="display:none;">
-                    <option value="TZS" ${this.state.currentCurrency === 'TZS' ? 'selected' : ''}>TZS (Tanzanian Shilling)</option>
-                    <option value="USD" ${this.state.currentCurrency === 'USD' ? 'selected' : ''}>USD (US Dollar)</option>
-                    <option value="EUR" ${this.state.currentCurrency === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
-                    <option value="GBP" ${this.state.currentCurrency === 'GBP' ? 'selected' : ''}>GBP (British Pound)</option>
-                    <option value="KES" ${this.state.currentCurrency === 'KES' ? 'selected' : ''}>KES (Kenyan Shilling)</option>
-                    <option value="UGX" ${this.state.currentCurrency === 'UGX' ? 'selected' : ''}>UGX (Ugandan Shilling)</option>
-                    <option value="RWF" ${this.state.currentCurrency === 'RWF' ? 'selected' : ''}>RWF (Rwandan Franc)</option>
-                    <option value="ZAR" ${this.state.currentCurrency === 'ZAR' ? 'selected' : ''}>ZAR (South African Rand)</option>
-                    <option value="NGN" ${this.state.currentCurrency === 'NGN' ? 'selected' : ''}>NGN (Nigerian Naira)</option>
-                    <option value="GHS" ${this.state.currentCurrency === 'GHS' ? 'selected' : ''}>GHS (Ghanaian Cedi)</option>
-                    <option value="AED" ${this.state.currentCurrency === 'AED' ? 'selected' : ''}>AED (UAE Dirham)</option>
-                    <option value="INR" ${this.state.currentCurrency === 'INR' ? 'selected' : ''}>INR (Indian Rupee)</option>
-                    <option value="CNY" ${this.state.currentCurrency === 'CNY' ? 'selected' : ''}>CNY (Chinese Yuan)</option>
-                    <option value="JPY" ${this.state.currentCurrency === 'JPY' ? 'selected' : ''}>JPY (Japanese Yen)</option>
-                    <option value="CAD" ${this.state.currentCurrency === 'CAD' ? 'selected' : ''}>CAD (Canadian Dollar)</option>
-                    <option value="AUD" ${this.state.currentCurrency === 'AUD' ? 'selected' : ''}>AUD (Australian Dollar)</option>
-                </select>
-                <div style="min-width: 200px;">
-                    ${this.renderCustomDropdown('settingsCurrencyDropdown', [
+            <div class="settings-section">
+                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Regional Settings</h4>
+                <div class="settings-row">
+                    <div>
+                        <div style="font-weight: 500;">Currency</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Default currency for transactions</div>
+                    </div>
+                    <select id="settings-currency" class="input-field" style="display:none;">
+                        <option value="TZS" ${this.state.currentCurrency === 'TZS' ? 'selected' : ''}>TZS (Tanzanian Shilling)</option>
+                        <option value="USD" ${this.state.currentCurrency === 'USD' ? 'selected' : ''}>USD (US Dollar)</option>
+                        <option value="EUR" ${this.state.currentCurrency === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
+                        <option value="GBP" ${this.state.currentCurrency === 'GBP' ? 'selected' : ''}>GBP (British Pound)</option>
+                        <option value="KES" ${this.state.currentCurrency === 'KES' ? 'selected' : ''}>KES (Kenyan Shilling)</option>
+                        <option value="UGX" ${this.state.currentCurrency === 'UGX' ? 'selected' : ''}>UGX (Ugandan Shilling)</option>
+                        <option value="RWF" ${this.state.currentCurrency === 'RWF' ? 'selected' : ''}>RWF (Rwandan Franc)</option>
+                        <option value="ZAR" ${this.state.currentCurrency === 'ZAR' ? 'selected' : ''}>ZAR (South African Rand)</option>
+                        <option value="NGN" ${this.state.currentCurrency === 'NGN' ? 'selected' : ''}>NGN (Nigerian Naira)</option>
+                        <option value="GHS" ${this.state.currentCurrency === 'GHS' ? 'selected' : ''}>GHS (Ghanaian Cedi)</option>
+                        <option value="AED" ${this.state.currentCurrency === 'AED' ? 'selected' : ''}>AED (UAE Dirham)</option>
+                        <option value="INR" ${this.state.currentCurrency === 'INR' ? 'selected' : ''}>INR (Indian Rupee)</option>
+                        <option value="CNY" ${this.state.currentCurrency === 'CNY' ? 'selected' : ''}>CNY (Chinese Yuan)</option>
+                        <option value="JPY" ${this.state.currentCurrency === 'JPY' ? 'selected' : ''}>JPY (Japanese Yen)</option>
+                        <option value="CAD" ${this.state.currentCurrency === 'CAD' ? 'selected' : ''}>CAD (Canadian Dollar)</option>
+                        <option value="AUD" ${this.state.currentCurrency === 'AUD' ? 'selected' : ''}>AUD (Australian Dollar)</option>
+                    </select>
+                    <div style="min-width: 200px;">
+                        ${this.renderCustomDropdown('settingsCurrencyDropdown', [
             { value: 'TZS', label: 'TZS (Tanzanian Shilling)' },
             { value: 'USD', label: 'USD (US Dollar)' },
             { value: 'EUR', label: 'EUR (Euro)' },
@@ -8601,37 +9001,37 @@ const app = {
             { value: 'CAD', label: 'CAD (Canadian Dollar)' },
             { value: 'AUD', label: 'AUD (Australian Dollar)' }
         ], this.state.currentCurrency, 'Select currency', 'app.handleSettingsCurrencyChange')}
+                    </div>
                 </div>
             </div>
-        </div>
-        `;
+            `;
 
         // 2.5. Business Details (for receipts) — read from profile state (Supabase-backed)
         content += `
-        <div class="settings-section">
-            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Business Details</h4>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Used on printed receipts</p>
-            <div id="biz-details-message" class="message-box hidden"></div>
-            <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
-                <div class="input-group">
-                    <label>Address</label>
-                    <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 123 Business St, City" disabled>
-                </div>
-                <div class="input-group">
-                    <label>Phone</label>
-                    <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +123 456 789" disabled>
-                </div>
-                <div class="input-group">
-                    <label>Email</label>
-                    <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="youremail@domain.co" disabled>
-                </div>
-                <div style="display:flex;gap:1rem;">
-                    <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
-                    <button type="submit" id="biz-save-btn" class="btn-primary" style="width: auto; display: none;">Save Details</button>
-                </div>
-            </form>
-        </div>
-        `;
+            <div class="settings-section">
+                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Business Details</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Used on printed receipts</p>
+                <div id="biz-details-message" class="message-box hidden"></div>
+                <form id="biz-details-form" class="auth-form" style="max-width: 100%;">
+                    <div class="input-group">
+                        <label>Address</label>
+                        <input type="text" id="biz-address" class="input-field" value="${profile?.address || ''}" placeholder="e.g. 123 Business St, City" disabled>
+                    </div>
+                    <div class="input-group">
+                        <label>Phone</label>
+                        <input type="text" id="biz-phone" class="input-field" value="${profile?.phone || ''}" placeholder="e.g. +123 456 789" disabled>
+                    </div>
+                    <div class="input-group">
+                        <label>Email</label>
+                        <input type="email" id="biz-email" class="input-field" value="${profile?.email || ''}" placeholder="youremail@domain.co" disabled>
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <button type="button" id="biz-edit-btn" class="btn-secondary" style="width: auto;">Edit Details</button>
+                        <button type="submit" id="biz-save-btn" class="btn-primary" style="width: auto; display: none;">Save Details</button>
+                    </div>
+                </form>
+            </div>
+            `;
 
         // 3. Profile Info (Admin Only Edit)
         if (role === 'admin') {
@@ -8656,9 +9056,9 @@ const app = {
 
         // 4. Security
         content += `
-        <div class="settings-section">
-            <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
-            `;
+            <div class="settings-section">
+                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Security</h4>
+                `;
 
         // 4.1 Change Password (Admin Only)
         if (role === 'admin') {
@@ -8704,47 +9104,47 @@ const app = {
 
         // 4.2 Security PIN (Admin & Branch)
         content += `
-            <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
-                <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-weight: 500;">Security PIN</span>
-                        <span class="badge ${this.state.hasSecurityPin ? 'badge-success' : 'badge-warning'}" style="font-size: 0.7rem;">
-                            ${this.state.hasSecurityPin ? 'Active' : 'Not Set'}
-                        </span>
+                <div class="collapsible-section" style="border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;">
+                    <div id="pin-section-header" class="collapsible-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-glass);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-weight: 500;">Security PIN</span>
+                            <span class="badge ${this.state.hasSecurityPin ? 'badge-success' : 'badge-warning'}" style="font-size: 0.7rem;">
+                                ${this.state.hasSecurityPin ? 'Active' : 'Not Set'}
+                            </span>
+                        </div>
+                        <span>▼</span>
                     </div>
-                    <span>▼</span>
-                </div>
-                <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                        Used for sensitive actions like deleting ${role === 'admin' ? 'branches' : 'sales'}.
-                    </p>
-                    <div id="pin-message" class="message-box hidden"></div>
-                    <form id="pin-form" class="auth-form" style="max-width: 100%;">
-                        ${this.state.hasSecurityPin ? `
+                    <div id="pin-section-content" class="collapsible-content hidden" style="padding: 1rem; border-top: 1px solid var(--border);">
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Used for sensitive actions like deleting ${role === 'admin' ? 'branches' : 'sales'}.
+                        </p>
+                        <div id="pin-message" class="message-box hidden"></div>
+                        <form id="pin-form" class="auth-form" style="max-width: 100%;">
+                            ${this.state.hasSecurityPin ? `
                                 <div class="input-group">
                                     <label>Current PIN</label>
                                     <input type="password" id="pin-old" required maxlength="6" placeholder="Enter current PIN" autocomplete="off">
                                 </div>
                             ` : ''}
 
-                        <div class="input-group">
-                            <label>${this.state.hasSecurityPin ? 'New PIN' : 'Create PIN'}</label>
-                            <input type="password" id="pin-new" required maxlength="6" minlength="4" placeholder="Enter 4-6 digit PIN" autocomplete="off">
-                        </div>
+                            <div class="input-group">
+                                <label>${this.state.hasSecurityPin ? 'New PIN' : 'Create PIN'}</label>
+                                <input type="password" id="pin-new" required maxlength="6" minlength="4" placeholder="Enter 4-6 digit PIN" autocomplete="off">
+                            </div>
 
-                        <div class="input-group">
-                            <label>Confirm PIN</label>
-                            <input type="password" id="pin-confirm" required maxlength="6" minlength="4" placeholder="Confirm PIN" autocomplete="off">
-                        </div>
+                            <div class="input-group">
+                                <label>Confirm PIN</label>
+                                <input type="password" id="pin-confirm" required maxlength="6" minlength="4" placeholder="Confirm PIN" autocomplete="off">
+                            </div>
 
-                        <button type="submit" class="btn-primary" style="width: auto;">
-                            ${this.state.hasSecurityPin ? 'Update PIN' : 'Set PIN'}
-                        </button>
-                    </form>
+                            <button type="submit" class="btn-primary" style="width: auto;">
+                                ${this.state.hasSecurityPin ? 'Update PIN' : 'Set PIN'}
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
-        </div>
-        `;
+            `;
 
         content += `</div></div></div>`; // Close grid, card, and page-enter
 
@@ -9217,29 +9617,37 @@ const app = {
 
     <div class="stats-grid">
         <div class="stat-card">
+            <div class="stat-icon">🏢</div>
             <div class="stat-label">Total Branches</div>
             <div class="stat-value" id="stat-branches">--</div>
+            <div class="stat-trend trend-up"><span>↑</span> Stable</div>
         </div>
         <div class="stat-card">
+            <div class="stat-icon">👤</div>
             <div class="stat-label">Active Managers</div>
             <div class="stat-value" id="stat-managers">--</div>
+            <div class="stat-trend trend-up"><span>↑</span> Active</div>
         </div>
         <div class="stat-card">
+            <div class="stat-icon">💰</div>
             <div class="stat-label">This Month</div>
             <div class="stat-value">${this.formatStatValue(0)}</div>
+            <div class="stat-trend trend-up"><span>↑</span> 12% Growth</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">Growth</div>
-            <div class="stat-value">+0%</div>
+            <div class="stat-icon">📈</div>
+            <div class="stat-label">System Health</div>
+            <div class="stat-value">99%</div>
+            <div class="stat-trend trend-up"><span>↑</span> Optimal</div>
         </div>
     </div>
 
 </div>
-`;
+    `;
         } else {
             this.dom.contentArea.innerHTML = `
-<div class="page-enter">
-    <!-- Welcome Header -->
+    <div class="page-enter">
+    <!--Welcome Header-->
     <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-header">
             <h3 class="card-title">Branch Dashboard</h3>
@@ -9248,7 +9656,7 @@ const app = {
         <p style="color: var(--text-muted); font-size: 0.9rem;">Access your tasks and sales using the sidebar or the quick links below.</p>
     </div>
 
-    <!-- Quick Actions Grid -->
+    <!--Quick Actions Grid-->
     <h4 style="margin-bottom: 1rem; color: var(--text-main); font-weight: 600;">Quick Actions</h4>
     <div class="quick-links-grid">
         <div class="quick-link-card" onclick="app.loadPage('operations', false, false, false, 'sales')">
@@ -9281,7 +9689,7 @@ const app = {
         </div>
     </div>
 </div>
-`;
+    `;
         }
     },
 
@@ -9305,27 +9713,27 @@ const app = {
         // Missing Profile Handling
         if (!profile) {
             this.dom.contentArea.innerHTML = `
-<div class="page-enter">
-    <div class="card" style="max-width: 500px; margin: 2rem auto;">
-                    <div class="card-header">
-                        <h3 class="card-title">Complete Your Setup</h3>
-                    </div>
-                    <div id="setup-message" class="message-box hidden"></div>
-                    <form id="setup-form" class="auth-form">
-                        <p style="color: var(--text-muted);">Please finalize your account details.</p>
-                        <div class="input-group">
-                            <label>Your Name</label>
-                            <input type="text" id="setup-admin-name" required placeholder="John Doe">
-                        </div>
-                        <div class="input-group">
-                            <label>Enterprise Name</label>
-                            <input type="text" id="setup-name" required placeholder="My Business Name">
-                        </div>
-                        <button type="submit" class="btn-primary">Finalize Setup →</button>
-                    </form>
+    <div class="page-enter">
+        <div class="card" style="max-width: 500px; margin: 2rem auto;">
+            <div class="card-header">
+                <h3 class="card-title">Complete Your Setup</h3>
+            </div>
+            <div id="setup-message" class="message-box hidden"></div>
+            <form id="setup-form" class="auth-form">
+                <p style="color: var(--text-muted);">Please finalize your account details.</p>
+                <div class="input-group">
+                    <label>Your Name</label>
+                    <input type="text" id="setup-admin-name" required placeholder="John Doe">
                 </div>
+                <div class="input-group">
+                    <label>Enterprise Name</label>
+                    <input type="text" id="setup-name" required placeholder="My Business Name">
+                </div>
+                <button type="submit" class="btn-primary">Finalize Setup →</button>
+            </form>
+        </div>
 </div>
-            `;
+    `;
 
             setTimeout(() => {
                 const setupForm = document.getElementById('setup-form');
@@ -9362,10 +9770,10 @@ const app = {
             const entDisplay = sidebarHeader.querySelector('#ent-name-display');
 
             if (h2 && profile.enterprise_name) {
-                h2.textContent = `⚡ ${profile.enterprise_name}`;
+                h2.textContent = `⚡ ${profile.enterprise_name} `;
             }
             if (entDisplay) {
-                entDisplay.textContent = profile.branch_login_id ? `ID: ${profile.branch_login_id}` : 'Main Office';
+                entDisplay.textContent = profile.branch_login_id ? `ID: ${profile.branch_login_id} ` : 'Main Office';
             }
         }
 
@@ -9378,7 +9786,7 @@ const app = {
         this.initDashboardModule();
 
         // Ensure stat fonts are correct on initial render
-        setTimeout(() => this.adjustStatFontSizes(), 200);
+        // setTimeout(() => this.adjustStatFontSizes(), 200);
 
 
     },
@@ -9415,7 +9823,7 @@ const app = {
             const op = urlParams.get('op');
 
             if (normalizedUrlPage && normalizedUrlPage !== urlPage) {
-                window.history.replaceState({ page: initialPage, op: op }, '', `?page=${normalizedUrlPage}${op ? `&op=${op}` : ''}`);
+                window.history.replaceState({ page: initialPage, op: op }, '', `? page = ${normalizedUrlPage}${op ? `&op=${op}` : ''} `);
             }
 
             // Standardize routing: ALWAYS use loadPage to ensure title, sidebar, and history sync

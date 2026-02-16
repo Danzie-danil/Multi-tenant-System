@@ -9,7 +9,7 @@
     backdrop-filter: blur(20px);
     border: 2px solid var(--border);
     border-radius: var(--radius-xl);
-    padding: 2rem;
+    padding: 0.25rem;
     transition: var(--transition-base);
     position: relative;
     box-shadow: var(--shadow-md);
@@ -147,43 +147,102 @@
 .stat-card {
     background: var(--bg-surface);
     border: 2px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: 1.5rem;
     position: relative;
     overflow: hidden;
     transition: var(--transition-base);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 120px;
+    animation: statItemIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+    container-type: inline-size;
 }
 
-.stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: var(--gradient-primary);
+.stat-card:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.stat-card:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.stat-card:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+.stat-card:nth-child(4) {
+    animation-delay: 0.4s;
+}
+
+.stat-card:nth-child(5) {
+    animation-delay: 0.5s;
+}
+
+.stat-card:nth-child(6) {
+    animation-delay: 0.6s;
 }
 
 .stat-card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary);
+}
+
+.stat-icon {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.5rem;
+    font-size: 1.5rem;
+    opacity: 0.8;
 }
 
 .stat-label {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
 }
 
 .stat-value {
-    font-size: 2rem;
+    font-size: clamp(1.5rem, 15cqi, 2.25rem);
     font-weight: 800;
-    background: var(--gradient-text);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--text-main);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    word-break: break-all;
+}
+
+.stat-trend {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-top: 0.5rem;
+}
+
+.trend-up {
+    color: var(--success);
+}
+
+.trend-down {
+    color: var(--danger);
+}
+
+@keyframes statItemIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Form Styles */
@@ -782,7 +841,7 @@
         text-align: left;
     }
 
-    /* Mobile Stats Grid (Maintain 2x2) */
+    /* Mobile Stats Grid - Simplified */
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
@@ -790,64 +849,15 @@
     }
 
     .stat-card {
-        padding: 0.5rem 0.25rem;
-        /* Minimal padding */
-        border-radius: var(--radius-md);
-        container-type: inline-size;
-        /* Enable container queries */
-    }
-
-    .stat-card::before {
-        width: 2px;
-        /* Thinner accent line */
-    }
-
-    .stat-label {
-        /* Dynamically size text based on card width (approx 12-13% of width) */
-        font-size: clamp(9px, 13cqi, 12px);
-        margin-bottom: 0.2rem;
-        white-space: nowrap;
-        /* Force one line */
-        overflow: hidden;
-        text-overflow: clip;
-        line-height: 1;
+        padding: 1rem;
+        min-height: 100px;
     }
 
     .stat-value {
-        font-size: clamp(12px, 18cqi, 16px);
-        line-height: 1.1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: clip;
-    }
-
-    .stat-value {
-        font-size: clamp(12px, 18cqi, 16px);
-        line-height: 1.1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: clip;
+        font-size: clamp(1.25rem, 18cqi, 1.75rem);
     }
 }
 
-/* Explicitly enforce 2x2 grid on very small screens */
-@media (max-width: 480px) {
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 0.5rem !important;
-        /* Slightly tighter gap to save space */
-    }
-
-    .stat-card {
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-        min-height: 80px;
-        /* Ensure decent height */
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-}
 
 /* Interactive Welcome Card */
 .welcome-card {
@@ -923,7 +933,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 1.25rem 1rem;
-    text-align: center;
     transition: var(--transition-base);
     position: relative;
     overflow: hidden;
@@ -1068,16 +1077,10 @@
 }
 
 @media (max-width: 768px) {
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
 
-    .stat-card {
-        padding: 1rem;
-    }
-
-    .stat-value {
-        font-size: 1.5rem;
+    /* Tighter padding for mobile cards */
+    .card {
+        padding: 0.75rem;
     }
 
     .data-table-container,
@@ -1385,17 +1388,14 @@
 }
 
 /* Global Compact Card & Container Layout */
-.stat-card,
 .chart-card,
 .data-table-container,
 .auth-card,
 .welcome-card,
 .card {
     padding: 1rem !important;
-    /* Slightly more compact padding */
 }
 
-.stat-card form,
 .chart-card form,
 .data-table-container form,
 .auth-card form,
@@ -1404,7 +1404,6 @@
     gap: 0.01rem !important;
 }
 
-.stat-card .input-group,
 .chart-card .input-group,
 .data-table-container .input-group,
 .auth-card .input-group,

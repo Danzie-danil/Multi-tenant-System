@@ -1341,53 +1341,13 @@ a:hover {
     padding-right: 0;
 }
 
-.sale-list-controls {
-    display: none;
-    flex-direction: column;
-    gap: 0.75rem;
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 10;
-}
 
 @media (min-width: 768px) {
     .sale-list-wrapper {
-        padding-right: 3.5rem;
-        /* Space for arrows */
-    }
-
-    .sale-list-controls {
-        display: flex;
+        padding-right: 0;
     }
 }
 
-.sale-scroll-btn {
-    background: var(--bg-surface-elevated);
-    border: 1px solid var(--border);
-    color: var(--text-main);
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.sale-scroll-btn:hover {
-    background: var(--primary);
-    color: white;
-    transform: scale(1.1);
-    border-color: var(--primary);
-}
-
-.sale-scroll-btn:active {
-    transform: scale(0.95);
-}
 
 @keyframes saleItemIn {
     from {
@@ -2089,7 +2049,7 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.25rem;
+    padding: 0.6rem 1rem;
     cursor: pointer;
     transition: var(--transition-base);
     user-select: none;
@@ -2377,7 +2337,7 @@ a:hover {
     grid-template-columns: auto 1fr;
     gap: 0 12px;
     align-items: start;
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 0.4rem;
     background: var(--bg-surface);
     border-radius: var(--radius-lg);
     border: 2px solid var(--border);
