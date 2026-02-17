@@ -821,6 +821,7 @@ input[readonly] {
 
 .input-hint {
     font-size: 0.75rem;
+    font-weight: 600; /* Make hint bold */
     color: var(--warning);
     padding-top: 0.25rem;
     display: block;
