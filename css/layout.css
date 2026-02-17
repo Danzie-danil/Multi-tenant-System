@@ -3,6 +3,12 @@
    Dashboard, Sidebar, Modals
    ============================================ */
 
+html,
+body {
+    overflow: hidden; /* Prevents body scrolling */
+    overscroll-behavior: none; /* Disables bounce effect */
+}
+
 /* App Container */
 .app-container {
     min-height: 100vh;
