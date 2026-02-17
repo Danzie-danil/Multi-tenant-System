@@ -8936,20 +8936,20 @@ const app = {
         <div style="display: grid; gap: 2rem;">
             `;
 
-        // 1. Appearance (Theme)
+        // 1. Appearance (Theme) - Grouped List Design
         content += `
-            <div class="settings-section">
-                <h4 style="color: var(--text-main); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">Appearance</h4>
-                <div class="settings-row">
-                    <div>
-                        <div style="font-weight: 500;">Theme</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Switch between dark and light mode</div>
-                    </div>
-                    <div class="theme-buttons">
-                        <label class="theme-switch" title="Toggle theme">
-                            <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
+            <div class="grouped-list-header">APPEARANCE</div>
+            <div class="grouped-list">
+                <div class="list-item no-action">
+                    <div class="list-item-icon">🌓</div>
+                    <div class="list-item-content">
+                        <div class="list-item-label">Theme</div>
+                        <div style="display: flex; align-items: center;">
+                            <label class="theme-switch" title="Toggle theme" style="margin: 0;">
+                                <input type="checkbox" class="theme-switch-input" ${this.state.theme === 'light' ? 'checked' : ''}>
                                 <span class="theme-slider"></span>
-                        </label>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>

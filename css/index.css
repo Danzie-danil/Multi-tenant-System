@@ -70,6 +70,15 @@
     /* Layout Variables */
     --sidebar-width: 17.5rem;
     --input-height: 3.25rem;
+
+    /* Grouped List Design Tokens */
+    --list-group-bg: #1c1c1e;
+    --list-group-radius: 12px;
+    --list-item-min-height: 48px;
+    --list-separator: #38383a;
+    --list-label-color: #ffffff;
+    --list-value-color: #8e8e93;
+    --list-chevron-color: #8e8e93;
 }
 
 /* ============================================
@@ -111,6 +120,13 @@
 
     /* Primary Light adjusted */
     --primary-light: rgba(0, 0, 0, 0.05);
+
+    /* Grouped List Design Tokens - Light Theme */
+    --list-group-bg: #ffffff;
+    --list-separator: #e5e5e7;
+    --list-label-color: #000000;
+    --list-value-color: #8e8e93;
+    --list-chevron-color: #c7c7cc;
 }
 
 /* Light theme geo-background */
