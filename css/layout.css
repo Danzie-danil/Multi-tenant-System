@@ -150,6 +150,7 @@
     background: transparent;
     /* This is the scroll container - needed for sticky to work */
     overflow-y: auto;
+    overscroll-behavior-y: contain; /* Prevents scroll bounce */
     -webkit-overflow-scrolling: touch;
 }
 
@@ -351,7 +352,6 @@
     .main-content {
         margin-left: 0;
         width: 100%;
-        overflow-x: hidden;
     }
 
     .sidebar-nav {
