@@ -57,143 +57,176 @@
 
     <div id="app" class="app-container">
         <!-- Auth Container (default view) -->
-        <main id="auth-view" class="auth-wrapper hidden">
-            <div class="auth-card">
-                <h1 class="brand-logo">⚡ BMS</h1>
-                <p style="text-align: center; color: var(--text-muted); margin-bottom: 2rem;">
-                    Business Management System
-                </p>
+        <div id="auth-view" class="auth-container hidden">
+            <div class="floating-tabs">
+                <button class="floating-tab-btn" data-target="about">About</button>
+                <button class="floating-tab-btn" data-target="contact">Contact Us</button>
+                <button class="floating-tab-btn" data-target="suggestions">Suggestions</button>
+            </div>
 
-                <div class="auth-tabs">
-                    <button class="active" data-mode="login">Enterprise Login</button>
-                    <button data-mode="branch-login">Branch Login</button>
-                    <button data-mode="register">Register</button>
-                </div>
+            <button id="back-to-login-btn" class="btn-back hidden">← Back to Login</button>
 
-                <!-- Inline Message Box for Auth -->
-                <div id="auth-message" class="message-box hidden"></div>
-
-                <!-- Enterprise Login Form -->
-                <form id="login-form" class="auth-form">
-                    <div class="input-group">
-                        <label for="login-id">Admin Email</label>
-                        <input type="email" id="login-id" placeholder="admin@company.com" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="login-password">Password</label>
-                        <div class="password-wrapper">
-                            <input type="password" id="login-password" placeholder="Enter your password" required>
-                            <button type="button" class="password-toggle" data-target="login-password" tabindex="-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                    <circle cx="12" cy="12" r="3"></circle>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn-primary">Sign In →</button>
-                    <div style="text-align: center; margin-top: 0.5rem;">
-                        <a href="#" id="forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
-                    </div>
-                </form>
-
-                <!-- Branch Login Form -->
-                <form id="branch-login-form" class="auth-form hidden">
-                    <div class="input-group">
-                        <label for="branch-login-id">Branch ID</label>
-                        <input type="text" id="branch-login-id" placeholder="e.g. BR-NO-001-KDM" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="branch-login-password">Branch Password</label>
-                        <div class="password-wrapper">
-                            <input type="password" id="branch-login-password" placeholder="Enter branch password"
-                                required>
-                            <button type="button" class="password-toggle" data-target="branch-login-password"
-                                tabindex="-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                    <circle cx="12" cy="12" r="3"></circle>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="input-group"
-                        style="margin-top: 1.5rem; border-top: 1px dashed var(--border); padding-top: 1.25rem;">
-                        <label for="branch-enterprise-email" style="font-size: 0.8rem; opacity: 0.8;">Enterprise Email
-                            (Verification)</label>
-                        <input type="email" id="branch-enterprise-email" placeholder="admin@company.com" required
-                            autocomplete="off" data-lpignore="true" data-form-type="other">
-                    </div>
-                    <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Branch Login →</button>
-                    <div style="text-align: center; margin-top: 0.5rem;">
-                        <a href="#" id="branch-forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
-                    </div>
-                </form>
-
-                <!-- Register Form -->
-                <form id="register-form" class="auth-form hidden">
-                    <div class="input-group">
-                        <label for="reg-name">Enterprise Name</label>
-                        <input type="text" id="reg-name" placeholder="Acme Corporation" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="reg-email">Admin Email</label>
-                        <input type="email" id="reg-email" placeholder="admin@acme.com" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="reg-password">Password</label>
-                        <div class="password-wrapper">
-                            <input type="password" id="reg-password" placeholder="Create a strong password" required
-                                minlength="6">
-                            <button type="button" class="password-toggle" data-target="reg-password" tabindex="-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                    <circle cx="12" cy="12" r="3"></circle>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn-primary">Create Enterprise →</button>
-                </form>
-
-                <!-- Password Reset Form -->
-                <form id="reset-form" class="auth-form hidden">
-                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
-                        Enter your email to receive a password reset link.
+                <!-- Left Side: Info Panel -->
+            <div class="auth-info">
+                <div class="auth-info-content">
+                    <h1 class="auth-info-title">
+                        Elevate your
+                        <span class="highlight">business operations</span>
+                        to new heights.
+                    </h1>
+                    <p class="auth-info-subtitle">
+                        The world's most intuitive and powerful business management system. Designed for clarity, powered by intelligence.
                     </p>
-                    <div class="input-group">
-                        <label for="reset-email">Email Address</label>
-                        <input type="email" id="reset-email" placeholder="your@email.com" required>
+                    <div class="auth-testimonial">
+                        <p class="testimonial-text">
+                            "BMS can transform how you manage your  branches all together. Take a ride with us in this marvelous Intervention."
+                        </p>
+                        <p class="testimonial-author">
+                            Daniel Idrissa.,Developer
+                        </p>
                     </div>
-                    <button type="submit" class="btn-primary">Send Reset Link →</button>
-                    <div style="text-align: center; margin-top: 0.5rem;">
-                        <a href="#" id="back-to-login-link" style="font-size: 0.875rem; color: var(--text-muted);">←
-                            Back to Login</a>
-                    </div>
-                </form>
-
-                <!-- Branch Password Reset Info (Card instead of form) -->
-                <div id="branch-reset-info" class="auth-form hidden" style="text-align: center; padding: 1rem 0;">
-                    <div class="loader-container">
-                        <div class="rolling-loader"></div>
-                    </div>
-                    <h3 style="margin-bottom: 0.75rem;">Password Reset Restricted</h3>
-                    <p style="color: var(--text-muted); line-height: 1.5; margin-bottom: 1.5rem;">
-                        Branch accounts are managed by your Enterprise Administrator.<br>
-                        Please <strong>contact your manager or admin</strong> to have your password reset.
-                    </p>
-                    <button type="button" class="btn-ghost" id="branch-back-to-login" style="width: 100%;">
-                        ← Back to Branch Login
-                    </button>
                 </div>
             </div>
-        </main>
+
+            <!-- Right Side: Form Panel -->
+            <main class="auth-wrapper">
+                <div class="auth-card">
+                    <h1 class="brand-logo">⚡ BMS</h1>
+                    <p style="text-align: center; color: var(--text-muted); margin-bottom: 1rem;">
+                        Business Management System
+                    </p>
+
+                    <div class="auth-tabs">
+                        <button class="active" data-mode="login">Enterprise Login</button>
+                        <button data-mode="branch-login">Branch Login</button>
+                        <button data-mode="register">Register</button>
+                    </div>
+
+                    <!-- Inline Message Box for Auth -->
+                    <div id="auth-message" class="message-box hidden"></div>
+
+                    <!-- Enterprise Login Form -->
+                    <form id="login-form" class="auth-form">
+                        <div class="input-group">
+                            <label for="login-id">Admin Email</label>
+                            <input type="email" id="login-id" placeholder="admin@company.com" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="login-password">Password</label>
+                            <div class="password-wrapper">
+                                <input type="password" id="login-password" placeholder="Enter your password" required>
+                                <button type="button" class="password-toggle" data-target="login-password" tabindex="-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-primary">Sign In →</button>
+                        <div style="text-align: center; margin-top: 0.5rem;">
+                            <a href="#" id="forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
+                        </div>
+                    </form>
+
+                    <!-- Branch Login Form -->
+                    <form id="branch-login-form" class="auth-form hidden">
+                        <div class="input-group">
+                            <label for="branch-login-id">Branch ID</label>
+                            <input type="text" id="branch-login-id" placeholder="e.g. BR-NO-001-KDM" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="branch-login-password">Branch Password</label>
+                            <div class="password-wrapper">
+                                <input type="password" id="branch-login-password" placeholder="Enter branch password"
+                                    required>
+                                <button type="button" class="password-toggle" data-target="branch-login-password"
+                                    tabindex="-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="input-group"
+                            style="margin-top: 1.5rem; border-top: 1px dashed var(--border); padding-top: 1.25rem;">
+                            <label for="branch-enterprise-email" style="font-size: 0.8rem; opacity: 0.8;">Enterprise Email
+                                (Verification)</label>
+                            <input type="email" id="branch-enterprise-email" placeholder="admin@company.com" required
+                                autocomplete="off" data-lpignore="true" data-form-type="other">
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Branch Login →</button>
+                        <div style="text-align: center; margin-top: 0.5rem;">
+                            <a href="#" id="branch-forgot-password-link" style="font-size: 0.875rem;">Forgot Password?</a>
+                        </div>
+                    </form>
+
+                    <!-- Register Form -->
+                    <form id="register-form" class="auth-form hidden">
+                        <div class="input-group">
+                            <label for="reg-name">Enterprise Name</label>
+                            <input type="text" id="reg-name" placeholder="Acme Corporation" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="reg-email">Admin Email</label>
+                            <input type="email" id="reg-email" placeholder="admin@acme.com" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="reg-password">Password</label>
+                            <div class="password-wrapper">
+                                <input type="password" id="reg-password" placeholder="Create a strong password" required
+                                    minlength="6">
+                                <button type="button" class="password-toggle" data-target="reg-password" tabindex="-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-primary">Create Enterprise →</button>
+                    </form>
+
+                    <!-- Password Reset Form -->
+                    <form id="reset-form" class="auth-form hidden">
+                        <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                            Enter your email to receive a password reset link.
+                        </p>
+                        <div class="input-group">
+                            <label for="reset-email">Email Address</label>
+                            <input type="email" id="reset-email" placeholder="your@email.com" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Send Reset Link →</button>
+                        <div style="text-align: center; margin-top: 0.5rem;">
+                            <a href="#" id="back-to-login-link" style="font-size: 0.875rem; color: var(--text-muted);">←
+                                Back to Login</a>
+                        </div>
+                    </form>
+
+                    <!-- Branch Password Reset Info (Card instead of form) -->
+                    <div id="branch-reset-info" class="auth-form hidden" style="text-align: center; padding: 1rem 0;">
+                        <div class="loader-container">
+                            <div class="rolling-loader"></div>
+                        </div>
+                        <h3 style="margin-bottom: 0.75rem;">Password Reset Restricted</h3>
+                        <p style="color: var(--text-muted); line-height: 1.5; margin-bottom: 1.5rem;">
+                            Branch accounts are managed by your Enterprise Administrator.<br>
+                            Please <strong>contact your manager or admin</strong> to have your password reset.
+                        </p>
+                        <button type="button" class="btn-ghost" id="branch-back-to-login" style="width: 100%;">
+                            ← Back to Branch Login
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
 
         <!-- Dashboard Shell (Hidden by default) -->
         <div id="dashboard-shell" class="dashboard-layout hidden">
@@ -217,7 +250,7 @@
                             <span id="user-role" class="badge">Role</span>
                         </div>
                     </div>
-                    <button id="logout-btn" class="btn-ghost" style="width: 100%; margin-top: 1rem;">
+                    <button id="logout-btn" class="btn-ghost" style="width: 100%;">
                         ← Logout
                     </button>
                 </div>

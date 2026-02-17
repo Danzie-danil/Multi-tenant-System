@@ -79,6 +79,66 @@ export const Auth = {
 
         if (this.user) return this.user;
         if (this.branch) return { id: this.branch.id, role: 'branch_manager' };
+
+        // Floating tabs logic
+        const floatingTabs = document.querySelector('.floating-tabs');
+        if (floatingTabs) {
+            const tabButtons = floatingTabs.querySelectorAll('.floating-tab-btn');
+            const authContainer = document.getElementById('auth-view');
+            const backToLoginBtn = document.getElementById('back-to-login-btn');
+
+            const setSlider = (button) => {
+                if (!button) {
+                    floatingTabs.style.setProperty('--slider-width', '0px');
+                    return;
+                };
+                const left = button.offsetLeft;
+                const width = button.offsetWidth;
+                floatingTabs.style.setProperty('--slider-left', `${left}px`);
+                floatingTabs.style.setProperty('--slider-width', `${width}px`);
+            };
+
+            const initSlider = () => {
+                const activeButton = floatingTabs.querySelector('.floating-tab-btn.active');
+                setSlider(activeButton);
+            };
+            
+            setTimeout(initSlider, 150);
+            window.addEventListener('resize', initSlider);
+
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.target;
+                    
+                    // Show back button
+                    backToLoginBtn.classList.remove('hidden');
+
+                    setSlider(button);
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    if (target === 'about') {
+                        authContainer.classList.add('show-info');
+                    } else {
+                        authContainer.classList.remove('show-info'); 
+                        console.log(`Content for ${target} would show here.`);
+                    }
+                });
+            });
+
+            backToLoginBtn.addEventListener('click', () => {
+                // Hide back button
+                backToLoginBtn.classList.add('hidden');
+
+                // Hide content panel
+                authContainer.classList.remove('show-info');
+                
+                // Reset active state
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                setSlider(null); // Hide slider
+            });
+        }
+
         return null;
     },
 

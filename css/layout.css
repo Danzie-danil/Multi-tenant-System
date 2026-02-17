@@ -69,6 +69,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    overflow-y: auto; /* Enable scrolling for nav items */
 }
 
 .nav-item {
@@ -120,6 +121,9 @@
 .sidebar-footer {
     padding: 1.5rem;
     border-top: 1px solid var(--border);
+    display: flex; /* Ensure proper layout */
+    flex-direction: column; /* Stack items vertically */
+    gap: 1rem; /* Add space between profile and button */
 }
 
 .user-profile {
@@ -217,7 +221,7 @@
 /* Page Container */
 .page-container {
     flex: 1;
-    padding: 5rem 2rem 2rem 2rem;
+    padding: 6rem 2rem 2rem 2rem;
     /* Increased top padding for better space below floating fixed top bar */
 }
 

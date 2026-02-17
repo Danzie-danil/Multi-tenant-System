@@ -563,7 +563,7 @@ textarea {
 
 /* Input Group */
 .input-group {
-    margin-bottom: 1.25rem;
+    margin-bottom: 1rem;
 }
 
 .input-group label {
@@ -690,12 +690,168 @@ select.input-field option[value^="__quick_add"] {
 }
 
 /* Auth View Styles */
-.auth-wrapper {
+.auth-container {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+    background-color: var(--background);
+    position: relative; /* Add position relative for absolute positioning of children */
+}
+
+.floating-tabs {
+    position: absolute;
+    top: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 0.3rem;
+    display: flex;
+    gap: 0.3rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.floating-tabs::before {
+    content: '';
+    position: absolute;
+    top: 0.3rem;
+    left: var(--slider-left, 0.3rem);
+    width: var(--slider-width, 0px);
+    height: calc(100% - 0.6rem);
+    background-color: var(--primary);
+    border-radius: 50px;
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    z-index: 0;
+}
+
+.floating-tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-dark);
+    padding: 0.5rem 1rem;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: color 0.3s ease;
+    font-weight: 500;
+    white-space: nowrap;
+    position: relative; /* To be on top of the slider */
+    z-index: 1;
+}
+
+.floating-tab-btn.active {
+    color: white;
+}
+
+.btn-back {
+    position: absolute;
+    top: 5rem; /* Position below the tabs */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 110; /* Same level as tabs */
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 0.5rem 1rem;
+    color: var(--text-dark);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-back:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+@media (min-width: 769px) {
+    .floating-tabs {
+        display: none;
+    }
+}
+
+.auth-info {
+    flex: 1;
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: var(--text-dark);
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
-    padding: 2rem;
+    padding: 4rem;
+    text-align: left;
+}
+
+.auth-info-content {
+    max-width: 480px;
+}
+
+.auth-info-title {
+    font-size: 2.75rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+}
+
+.auth-info-title .highlight {
+    color: var(--accent);
+    display: block;
+}
+
+.auth-info-subtitle {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    opacity: 0.9;
+    margin-bottom: 2.5rem;
+}
+
+.auth-testimonial {
+    border-left: 3px solid var(--accent);
+    padding-left: 1.5rem;
+}
+
+.testimonial-text {
+    font-style: italic;
+    font-size: 1rem;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+
+.testimonial-author {
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+@media (max-width: 768px) {
+    .auth-info {
+        display: none;
+    }
+
+    .auth-wrapper {
+        flex: 1 1 100%;
+    }
+
+    .auth-container.show-info .auth-info {
+        display: flex;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 100;
+    }
+
+    .auth-container.show-info .auth-wrapper {
+        display: none;
+    }
+}
+
+.auth-wrapper {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 1.5rem;
     position: relative;
 }
 
@@ -703,7 +859,7 @@ select.input-field option[value^="__quick_add"] {
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    padding: 2.5rem;
+    padding: 2rem;
     border-radius: var(--radius-xl);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-lg);
@@ -728,7 +884,7 @@ select.input-field option[value^="__quick_add"] {
     font-size: 2rem;
     font-weight: 800;
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
     background: var(--gradient-text);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -747,12 +903,10 @@ select.input-field option[value^="__quick_add"] {
 
 .auth-tabs {
     display: flex;
+    justify-content: center; /* Center the buttons */
+    align-items: center;
     margin-bottom: 1.5rem;
-    background: var(--bg-glass);
-    border-radius: var(--radius-lg);
-    padding: 0.25rem;
-    gap: 0.25rem;
-    overflow: hidden;
+    gap: 1.5rem; /* Control the space between buttons */
 }
 
 .auth-tabs button {
