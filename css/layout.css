@@ -421,6 +421,20 @@ body {
         /* Removed !important */
         margin-right: 0.75rem;
     }
+
+    .modal-content {
+        display: flex;
+        flex-direction: column;
+        height: 90vh; /* Fill available height */
+        padding: 1rem; /* Reduce padding on mobile */
+        overflow: hidden; /* Prevent entire modal from scrolling */
+    }
+
+    .modal-body {
+        flex: 1; /* Take up all available space */
+        overflow-y: auto; /* Make only the body scrollable */
+        padding: 0.5rem 0;
+    }
 }
 
 /* Mobile Utility */

@@ -853,7 +853,9 @@ const app = {
                         validationHint.textContent = 'Verification Passed';
                         validationHint.className = 'validation-hint valid';
                         enterpriseEmailInput.readOnly = false;
-                        enterpriseEmailInput.focus();
+                        if (window.innerWidth > 768) { // Only focus on desktop
+                            enterpriseEmailInput.focus();
+                        }
                         branchIdInput.readOnly = true;
                         branchPasswordInput.readOnly = true;
                         resetValidationBtn.classList.remove('hidden');
@@ -967,7 +969,9 @@ const app = {
                 if (loadingScreen) loadingScreen.classList.add('hidden');
 
                 // Friendly error for branches
-                const message = "Invalid Enterprise Email, Branch ID, or Password. Please verify your credentials.";
+                const message = isBranchValidated 
+                    ? "Incorrect Enterprise Email. Please try again."
+                    : "Invalid Branch ID or Password. Please verify your credentials.";
                 this.showMessage('auth-message', message, 'error');
 
                 btn.textContent = 'Branch Login →';
@@ -7551,7 +7555,7 @@ const app = {
             </div>
 
             <!-- Body -->
-            <div style="min-height: 200px;">
+            <div class="modal-body" style="min-height: 200px;">
                 <!-- View Mode Body -->
                 <div id="np-view-body" style="white-space: pre-wrap; line-height: 1.6; color: var(--text-main);">
                     ${note.details || '<em class="text-muted">No additional details</em>'}
