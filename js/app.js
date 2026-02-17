@@ -649,6 +649,7 @@ const app = {
                     }
                 }
                 document.body.classList.add('loaded');
+                document.getElementById('login-id')?.blur();
             }
         } catch (error) {
             console.error('Auth Init Error:', error);
