@@ -563,12 +563,11 @@ textarea {
 
 /* Input Group */
 .input-group {
-    margin-bottom: 1rem;
+    margin-bottom: 0;
 }
 
 .input-group label {
     display: block;
-    margin-bottom: 0.75rem;
     font-size: 0.95rem;
     font-weight: 700;
     color: var(--text-main);
@@ -765,6 +764,110 @@ select.input-field option[value^="__quick_add"] {
     transform: translateY(-1px);
 }
 
+.input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem; /* Space between header and input */
+}
+
+.input-header label {
+    margin-bottom: 0; /* Override default margin */
+}
+
+.input-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.validation-hint {
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: opacity 0.3s ease;
+}
+
+.validation-hint.valid {
+    color: var(--success);
+}
+
+.validation-hint.invalid {
+    color: var(--danger);
+}
+
+.btn-reset {
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+}
+
+.btn-reset:hover {
+    background: var(--bg-surface-hover);
+    border-color: var(--border-hover);
+    color: var(--text-main);
+}
+
+input[readonly] {
+    cursor: not-allowed;
+    background-color: var(--bg-glass) !important;
+    opacity: 0.7;
+}
+
+.input-hint {
+    font-size: 0.75rem;
+    color: var(--warning);
+    padding-top: 0.25rem;
+    display: block;
+    transition: opacity 0.3s ease;
+}
+
+.validation-status {
+    position: absolute;
+    right: 3rem; /* Position left of the password toggle */
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.validation-status.loading::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--text-muted);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.validation-status.valid::after {
+    content: '✓';
+    color: var(--success);
+    font-weight: bold;
+}
+
+.validation-status.invalid::after {
+    content: '×';
+    color: var(--danger);
+    font-weight: bold;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @media (min-width: 769px) {
     .floating-tabs {
         display: none;
@@ -790,7 +893,7 @@ select.input-field option[value^="__quick_add"] {
     font-size: 2.75rem;
     font-weight: 800;
     line-height: 1.2;
-    margin-bottom: 1rem;
+    margin-bottom: 0; /* Removed space */
 }
 
 .auth-info-title .highlight {
@@ -905,7 +1008,7 @@ select.input-field option[value^="__quick_add"] {
     display: flex;
     justify-content: center; /* Center the buttons */
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0;
     gap: 1.5rem; /* Control the space between buttons */
 }
 

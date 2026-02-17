@@ -138,10 +138,17 @@
                             <input type="text" id="branch-login-id" placeholder="e.g. BR-NO-001-KDM" required>
                         </div>
                         <div class="input-group">
-                            <label for="branch-login-password">Branch Password</label>
+                            <div class="input-header">
+                                <label for="branch-login-password">Branch Password</label>
+                                <div class="input-header-actions">
+                                    <span id="branch-validation-hint" class="validation-hint hidden"></span>
+                                    <button type="button" id="reset-branch-validation" class="btn-reset" tabindex="-1">Reset</button>
+                                </div>
+                            </div>
                             <div class="password-wrapper">
                                 <input type="password" id="branch-login-password" placeholder="Enter branch password"
                                     required>
+                                <span id="branch-validation-status" class="validation-status"></span>
                                 <button type="button" class="password-toggle" data-target="branch-login-password"
                                     tabindex="-1">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
@@ -154,11 +161,12 @@
                             </div>
                         </div>
                         <div class="input-group"
-                            style="margin-top: 1.5rem; border-top: 1px dashed var(--border); padding-top: 1.25rem;">
+                            style="margin-top: 0.5rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
                             <label for="branch-enterprise-email" style="font-size: 0.8rem; opacity: 0.8;">Enterprise Email
                                 (Verification)</label>
                             <input type="email" id="branch-enterprise-email" placeholder="admin@company.com" required
-                                autocomplete="off" data-lpignore="true" data-form-type="other">
+                                autocomplete="off" data-lpignore="true" data-form-type="other" readonly>
+                            <small id="branch-email-hint" class="input-hint hidden">Please confirm Branch ID and Password first.</small>
                         </div>
                         <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Branch Login →</button>
                         <div style="text-align: center; margin-top: 0.5rem;">

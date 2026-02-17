@@ -339,6 +339,20 @@ export const Auth = {
         return { user: authData.user, enterprise: entData };
     },
 
+    async validateBranch(branchId, password) {
+        const { data, error } = await supabase.rpc('validate_branch_credentials', {
+            p_branch_login_id: branchId,
+            p_password: password
+        });
+
+        if (error) {
+            console.error('Branch validation RPC error:', error);
+            return { valid: false };
+        }
+
+        return { valid: data };
+    },
+
     async login(identifier, password) {
         // Standard Email Login
         const { data, error } = await supabase.auth.signInWithPassword({

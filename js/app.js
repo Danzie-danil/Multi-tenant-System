@@ -807,6 +807,91 @@ const app = {
             });
         }
 
+        // Live validation for Branch Login
+        const branchIdInput = document.getElementById('branch-login-id');
+        const branchPasswordInput = document.getElementById('branch-login-password');
+        const enterpriseEmailInput = document.getElementById('branch-enterprise-email');
+        const validationStatus = document.getElementById('branch-validation-status');
+        const resetValidationBtn = document.getElementById('reset-branch-validation');
+        const emailHint = document.getElementById('branch-email-hint');
+        const validationHint = document.getElementById('branch-validation-hint');
+
+        let validationTimeout;
+        let isBranchValidated = false;
+
+        // Show hint when readonly email input is clicked
+        enterpriseEmailInput.addEventListener('click', () => {
+            if (enterpriseEmailInput.readOnly) {
+                emailHint.classList.remove('hidden');
+                setTimeout(() => emailHint.classList.add('hidden'), 2500);
+            }
+        });
+
+        const handleBranchValidation = async () => {
+            if (isBranchValidated) return; // Don't re-validate if already confirmed
+
+            const branchId = branchIdInput.value;
+            const password = branchPasswordInput.value;
+
+            if (branchId.length < 5 || password.length < 6) {
+                enterpriseEmailInput.readOnly = true;
+                validationStatus.className = 'validation-status';
+                validationHint.classList.add('hidden');
+                return;
+            }
+
+            validationStatus.className = 'validation-status loading';
+            validationHint.classList.add('hidden');
+
+            clearTimeout(validationTimeout);
+            validationTimeout = setTimeout(async () => {
+                try {
+                    const { valid } = await Auth.validateBranch(branchId, password);
+                    if (valid) {
+                        isBranchValidated = true;
+                        validationStatus.className = 'validation-status valid';
+                        validationHint.textContent = 'Verification Passed';
+                        validationHint.className = 'validation-hint valid';
+                        enterpriseEmailInput.readOnly = false;
+                        enterpriseEmailInput.focus();
+                        branchIdInput.readOnly = true;
+                        branchPasswordInput.readOnly = true;
+                        resetValidationBtn.classList.remove('hidden');
+                    } else {
+                        validationStatus.className = 'validation-status invalid';
+                        validationHint.textContent = 'Verification Failed';
+                        validationHint.className = 'validation-hint invalid';
+                        enterpriseEmailInput.readOnly = true;
+                    }
+                } catch (error) {
+                    console.error('Branch validation failed:', error);
+                    validationStatus.className = 'validation-status invalid';
+                    validationHint.textContent = 'Verification Failed';
+                    validationHint.className = 'validation-hint invalid';
+                    enterpriseEmailInput.readOnly = true;
+                }
+            }, 500);
+        };
+
+        const resetBranchValidation = () => {
+            isBranchValidated = false;
+            branchIdInput.readOnly = false;
+            branchPasswordInput.readOnly = false;
+            enterpriseEmailInput.readOnly = true;
+            branchIdInput.value = '';
+            branchPasswordInput.value = '';
+            enterpriseEmailInput.value = '';
+            validationStatus.className = 'validation-status';
+            resetValidationBtn.classList.add('hidden');
+            validationHint.classList.add('hidden');
+            branchIdInput.focus();
+        };
+
+        branchIdInput.addEventListener('input', handleBranchValidation);
+        branchPasswordInput.addEventListener('input', handleBranchValidation);
+        resetValidationBtn.addEventListener('click', resetBranchValidation);
+
+
         // Login
         this.dom.loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
