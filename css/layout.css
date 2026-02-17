@@ -155,7 +155,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 0.2rem;
-    padding: 0.7rem 1.25rem;
+    padding: 1rem 1.32rem;
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border: 1px solid var(--border);
@@ -187,7 +187,7 @@
 }
 
 .top-bar h2 {
-    font-size: 0.99rem;
+    font-size: 1.25rem;
     font-weight: 850;
     color: var(--text-main);
 
@@ -375,7 +375,7 @@
     }
 
     .top-bar {
-        padding: 0.6rem 1rem;
+        padding: 0.8rem 1.02rem;
         position: fixed;
         top: 0.5rem;
         left: 0.75rem;
