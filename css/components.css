@@ -1021,11 +1021,14 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 1.25rem 1rem;
+    padding: 1rem 1.25rem;
     transition: var(--transition-base);
     position: relative;
     overflow: hidden;
     cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .stat-card:hover {
@@ -1044,20 +1047,37 @@
     background: linear-gradient(90deg, var(--primary), var(--primary-light));
 }
 
+.stat-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.stat-icon {
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
 .stat-label {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.05em;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
+    white-space: nowrap;
 }
 
 .stat-value {
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: clamp(1.5rem, 2.5vw, 2.25rem);
+    font-weight: 800;
     color: var(--text-main);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
 }
 
 .stat-change {

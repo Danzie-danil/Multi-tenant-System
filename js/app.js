@@ -2268,30 +2268,30 @@ const app = {
     },
 
     adjustStatFontSizes() {
-        // NOTE: Redundant since switching to CSS fluid typography (clamp + container queries)
-        // See components.css .stat-value
-        /*
-        if (window.innerWidth > 768) return; // Only on mobile
-
         const statValues = document.querySelectorAll('.stat-value');
         statValues.forEach(el => {
             const container = el.closest('.stat-card');
             if (!container) return;
 
-            // Initial reset to base mobile size defined in CSS (1.5rem = 24px)
-            // Using a slightly more conservative starting point for logic
-            let fontSize = 24;
-            el.style.fontSize = fontSize + 'px';
+            // Reset to base size from CSS to measure correctly
+            el.style.fontSize = '';
 
-            const maxWidth = container.clientWidth - parseInt(window.getComputedStyle(container).paddingLeft) - parseInt(window.getComputedStyle(container).paddingRight);
+            const computed = window.getComputedStyle(container);
+            const padding = parseFloat(computed.paddingLeft) + parseFloat(computed.paddingRight);
+            const maxWidth = container.clientWidth - padding;
 
-            // Loop to shrink font until it fits
-            while (el.scrollWidth > maxWidth && fontSize > 10) {
-                fontSize -= 0.5;
+            if (el.scrollWidth > maxWidth) {
+                // Large initial size to shrink from
+                let fontSize = 32;
                 el.style.fontSize = fontSize + 'px';
+
+                // Loop to shrink font until it fits
+                while (el.scrollWidth > maxWidth && fontSize > 12) {
+                    fontSize -= 1;
+                    el.style.fontSize = fontSize + 'px';
+                }
             }
         });
-        */
     },
 
     bindCollapseControls(container = document) {
@@ -2431,8 +2431,7 @@ const app = {
         }
 
         // Run font resizing after content is likely rendered
-        // Give enough time for DOM to stabilize and for currency formatting to complete
-        // setTimeout(() => this.adjustStatFontSizes(), 50);
+        setTimeout(() => this.adjustStatFontSizes(), 200);
     },
 
     renderOperations() {
@@ -5836,14 +5835,18 @@ const app = {
 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-icon">💰</div>
-                        <div class="stat-label">Today's Profit</div>
+                        <div class="stat-header">
+                            <div class="stat-icon">💰</div>
+                            <div class="stat-label">Today's Profit</div>
+                        </div>
                         <div class="stat-value">Loading...</div>
                         <div class="stat-trend trend-up"><span>↑</span> Revenue</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">📊</div>
-                        <div class="stat-label">Gross Profit</div>
+                        <div class="stat-header">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-label">Gross Profit</div>
+                        </div>
                         <div class="stat-value">Loading...</div>
                         <div class="stat-trend trend-up"><span>↑</span> Combined</div>
                     </div>
@@ -9144,6 +9147,18 @@ const app = {
                     </div>
                 </div>
             </div>
+
+            <div class="settings-section" style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px dashed var(--border);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-weight: 700; color: var(--text-muted); font-size: 0.75rem; letter-spacing: 0.05em;">SYSTEM INFORMATION</div>
+                        <div style="font-size: 0.85rem; color: var(--text-main); margin-top: 0.25rem;">Version: <span style="font-weight: 600;">v48.Nexus</span></div>
+                    </div>
+                    <button id="btn-check-updates" class="btn-ghost" style="font-size: 0.8rem; padding: 0.4rem 0.8rem; border: 1px solid var(--border);">
+                        🔄 Check for Updates
+                    </button>
+                </div>
+            </div>
             `;
 
         content += `</div></div></div>`; // Close grid, card, and page-enter
@@ -9242,6 +9257,46 @@ const app = {
                     } finally {
                         saveBtn.textContent = 'Save Details';
                         saveBtn.disabled = false;
+                    }
+                });
+            }
+
+            // Check for Updates Manual Trigger
+            const updateBtn = document.getElementById('btn-check-updates');
+            if (updateBtn) {
+                updateBtn.addEventListener('click', async () => {
+                    updateBtn.textContent = 'Checking...';
+                    updateBtn.disabled = true;
+
+                    if ('serviceWorker' in navigator) {
+                        try {
+                            const registration = await navigator.serviceWorker.getRegistration();
+                            if (registration) {
+                                await registration.update();
+                                this.showToast('Checking for updates...', 'info');
+
+                                // Reset button after a delay if no update found
+                                setTimeout(() => {
+                                    if (updateBtn) {
+                                        updateBtn.textContent = '🔄 Check for Updates';
+                                        updateBtn.disabled = false;
+                                    }
+                                }, 3000);
+                            } else {
+                                this.showToast('Service worker not finding registration.', 'warning');
+                                updateBtn.textContent = '🔄 Check for Updates';
+                                updateBtn.disabled = false;
+                            }
+                        } catch (err) {
+                            console.error('Manual update check failed:', err);
+                            this.showToast('Update check failed.', 'error');
+                            updateBtn.textContent = '🔄 Check for Updates';
+                            updateBtn.disabled = false;
+                        }
+                    } else {
+                        this.showToast('PWA features not supported.', 'warning');
+                        updateBtn.textContent = '🔄 Check for Updates';
+                        updateBtn.disabled = false;
                     }
                 });
             }
@@ -9617,26 +9672,34 @@ const app = {
 
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-icon">🏢</div>
-            <div class="stat-label">Total Branches</div>
+            <div class="stat-header">
+                <div class="stat-icon">🏢</div>
+                <div class="stat-label">Total Branches</div>
+            </div>
             <div class="stat-value" id="stat-branches">--</div>
             <div class="stat-trend trend-up"><span>↑</span> Stable</div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon">👤</div>
-            <div class="stat-label">Active Managers</div>
+            <div class="stat-header">
+                <div class="stat-icon">👤</div>
+                <div class="stat-label">Active Managers</div>
+            </div>
             <div class="stat-value" id="stat-managers">--</div>
             <div class="stat-trend trend-up"><span>↑</span> Active</div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon">💰</div>
-            <div class="stat-label">This Month</div>
+            <div class="stat-header">
+                <div class="stat-icon">💰</div>
+                <div class="stat-label">This Month</div>
+            </div>
             <div class="stat-value">${this.formatStatValue(0)}</div>
             <div class="stat-trend trend-up"><span>↑</span> 12% Growth</div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon">📈</div>
-            <div class="stat-label">System Health</div>
+            <div class="stat-header">
+                <div class="stat-icon">📈</div>
+                <div class="stat-label">System Health</div>
+            </div>
             <div class="stat-value">99%</div>
             <div class="stat-trend trend-up"><span>↑</span> Optimal</div>
         </div>

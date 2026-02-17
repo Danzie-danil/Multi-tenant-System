@@ -527,20 +527,28 @@
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js').then(registration => {
+                // updateViaCache: 'none' forces the browser to bypass any HTTP cache for the sw.js file
+                // this ensures that the network is always checked for a new version of the service worker.
+                navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(registration => {
                     console.log('ServiceWorker registered');
 
-                    // 1. Check for updates IMMEDIATELY on load
-                    registration.update();
+                    // 1. Initial check (wait a tiny bit for stability)
+                    setTimeout(() => registration.update(), 2000);
 
-                    // 2. Check for updates whenever the page becomes visible (foregrounded)
+                    // 2. Check on visibility change (foregrounding)
                     document.addEventListener('visibilitychange', () => {
                         if (document.visibilityState === 'visible') {
                             registration.update();
                         }
                     });
 
-                    // 3. Periodic check every 5 minutes (less aggressive but consistent)
+                    // 3. Check on online status (restored connection)
+                    window.addEventListener('online', () => registration.update());
+
+                    // 4. Check on pageshow (navigating back to the app in mobile browsers)
+                    window.addEventListener('pageshow', () => registration.update());
+
+                    // 5. Periodic check every 5 minutes
                     setInterval(() => {
                         registration.update();
                     }, 5 * 60 * 1000);

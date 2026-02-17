@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-bms-v47';
+const CACHE_NAME = 'nexus-bms-v48';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -27,7 +27,7 @@ self.addEventListener('install', (event) => {
     self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Caching app shell');
+            console.log('[Service Worker] Caching app shell (v48)');
             // Use {cache: 'reload'} to force network fetch and bypass browser cache
             return Promise.all(
                 ASSETS_TO_CACHE.map(url =>
