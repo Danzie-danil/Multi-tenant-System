@@ -8904,23 +8904,23 @@ const app = {
     <div class="card" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
         <div class="card-header" style="position: relative; text-align: center; display: block; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
             <!-- Actions Container -->
-            <div style="position: absolute; top: 0; right: 0; display: flex; gap: 0.25rem; background: var(--bg-surface-elevated); padding: 0.3rem; border-radius: var(--radius-squircle); border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
-                <button id="btn-export-data" class="btn-ghost" style="padding: 0.4rem 0.8rem; height: auto; border: none; display: flex; align-items: center; gap: 0.4rem; color: var(--text-main);" title="Backup Data">
+            <div style="position: absolute; top: 0; right: 0; display: flex; gap: 0.15rem; background: var(--bg-surface-elevated); padding: 0.2rem; border-radius: var(--radius-squircle); border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+                <button id="btn-export-data" class="btn-ghost" style="padding: 0.4rem 0.6rem; height: auto; border: none; display: flex; align-items: center; gap: 0.25rem; color: var(--text-main);" title="Backup Data">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                         <polyline points="7 10 12 15 17 10"></polyline>
                         <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
-                    <span style="font-size: 0.85rem; font-weight: 500;">Export</span>
+                    <span class="mobile-hide" style="font-size: 0.8rem; font-weight: 500;">Export</span>
                 </button>
                 <div style="width: 1px; background: var(--border); margin: 4px 0;"></div>
-                <button id="btn-import-data" class="btn-ghost" style="padding: 0.4rem 0.8rem; height: auto; border: none; display: flex; align-items: center; gap: 0.4rem; color: var(--text-main);" title="Restore Data">
+                <button id="btn-import-data" class="btn-ghost" style="padding: 0.4rem 0.6rem; height: auto; border: none; display: flex; align-items: center; gap: 0.25rem; color: var(--text-main);" title="Restore Data">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                         <polyline points="17 8 12 3 7 8"></polyline>
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
-                    <span style="font-size: 0.85rem; font-weight: 500;">Import</span>
+                    <span class="mobile-hide" style="font-size: 0.8rem; font-weight: 500;">Import</span>
                 </button>
                 <input type="file" id="file-import-data" accept=".json" style="display: none;">
             </div>

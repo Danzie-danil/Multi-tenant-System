@@ -683,14 +683,15 @@
     border: 1px solid var(--border);
     border-radius: 9999px;
     /* Pill shape */
-    padding: 0.25rem;
+    padding: 2px;
     box-shadow: var(--shadow-sm);
     /* Align with content */
     opacity: 0;
     transform: translateY(-5px);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: none;
-    height: 36px;
+    height: 26px;
+    /* Reduced from 36px to match theme switch height */
 }
 
 .nav-controls.visible {
@@ -703,9 +704,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 28px;
-    border-radius: 14px;
+    width: 26px;
+    /* Match height */
+    height: 22px;
+    /* Inner height */
+    border-radius: 11px;
     /* Inner radius */
     color: var(--text-muted);
     transition: all 0.2s;

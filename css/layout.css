@@ -155,7 +155,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 0.2rem;
-    padding: 0.5rem 1rem;
+    padding: 0.7rem 1.25rem;
     background: var(--bg-surface);
     backdrop-filter: blur(20px);
     border: 1px solid var(--border);
@@ -322,8 +322,10 @@
 @media (max-width: 768px) {
     .sidebar {
         transform: translateX(calc(-100% - 1rem));
-        width: calc(100% - 1.5rem);
-        max-width: 17.5rem;
+        width: 15rem;
+        /* Reduced from 17.5rem */
+        max-width: 80%;
+        /* Ensure it doesn't cover the whole screen on very narrow devices */
         position: fixed;
         border: 1px solid var(--border);
         border-radius: var(--radius-squircle);
@@ -373,7 +375,7 @@
     }
 
     .top-bar {
-        padding: 0.5rem 1rem;
+        padding: 0.6rem 1rem;
         position: fixed;
         top: 0.5rem;
         left: 0.75rem;
@@ -411,9 +413,13 @@
     }
 }
 
-/* Operations Dock styles are in components.css */
+/* Mobile Utility */
+@media (max-width: 480px) {
+    .mobile-hide {
+        display: none !important;
+    }
+}
 
-/* Active dot indicator REMOVED as per "navy blue bg" request implying that is the indicator */
 .dock-item.active::after {
     display: none;
 }

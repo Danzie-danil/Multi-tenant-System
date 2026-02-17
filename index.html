@@ -530,10 +530,20 @@
                 navigator.serviceWorker.register('./sw.js').then(registration => {
                     console.log('ServiceWorker registered');
 
-                    // Check for updates every 60 seconds
+                    // 1. Check for updates IMMEDIATELY on load
+                    registration.update();
+
+                    // 2. Check for updates whenever the page becomes visible (foregrounded)
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState === 'visible') {
+                            registration.update();
+                        }
+                    });
+
+                    // 3. Periodic check every 5 minutes (less aggressive but consistent)
                     setInterval(() => {
                         registration.update();
-                    }, 60 * 1000);
+                    }, 5 * 60 * 1000);
 
                     registration.addEventListener('updatefound', () => {
                         const newWorker = registration.installing;
@@ -554,12 +564,12 @@
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (refreshing) return;
                 refreshing = true;
+                // Force reload to apply new code immediately
                 window.location.reload();
             });
         }
 
         // Debug utility: Clear all caches via console
-        // Usage: clearAppCache() in browser console
         window.clearAppCache = async () => {
             const keys = await caches.keys();
             await Promise.all(keys.map(key => caches.delete(key)));
